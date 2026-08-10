@@ -1,0 +1,28 @@
+{
+  "name": "corporate-pooling-backend",
+  "version": "1.0.0",
+  "description": "Corporate Ride Pooling Application Backend",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": ["ride-pooling", "corporate", "supabase"],
+  "author": "Shiva",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.x.x",
+    "bcryptjs": "^2.x.x",
+    "cors": "^2.x.x",
+    "dotenv": "^16.x.x",
+    "express": "^4.x.x",
+    "express-rate-limit": "^7.x.x",
+    "helmet": "^8.x.x",
+    "jsonwebtoken": "^9.x.x",
+    "morgan": "^1.x.x",
+    "multer": "^1.x.x",
+    "nodemailer": "^6.x.x",
+    "uuid": "^10.x.x"
+  }
+}
