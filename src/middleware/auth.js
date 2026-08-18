@@ -1,13 +1,13 @@
 // ============================================================
-// JWT Auth Middleware
+// JWT Auth Middleware — Corporate Pooling Backend
 // Verifies Bearer token from Supabase Auth
-// Attaches req.user = { id, email, role, company_id, user_type }
+// Attaches req.user = { id, work_email, role, company_id, trust_score, ... }
 // ============================================================
 
 'use strict';
 
 const { supabaseAdmin } = require('../config/supabase');
-const { unauthorized, serverError } = require('../utils/response');
+const { unauthorized, forbidden, serverError } = require('../utils/response');
 
 /**
  * Require valid Supabase JWT. Attaches req.user on success.
@@ -20,16 +20,16 @@ async function requireAuth(req, res, next) {
     }
     const token = authHeader.replace('Bearer ', '').trim();
 
-    // Verify token with Supabase
+    // 1. Verify token with Supabase
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !user) {
-      return unauthorized(res, 'Invalid or expired token');
+      return unauthorized(res, 'Invalid or expired authentication token');
     }
 
-    // Fetch full user profile from our users table
+    // 2. Fetch full user profile from our production users table
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from('users')
-      .select('id, full_name, email, user_type, company_id, is_active, is_driver_verified, coin_balance')
+      .select('id, full_name, phone_number, role, work_email, work_email_verified, company_id, building_id, dl_verified, trust_score, is_banned')
       .eq('id', user.id)
       .single();
 
@@ -37,8 +37,8 @@ async function requireAuth(req, res, next) {
       return unauthorized(res, 'User profile not found. Please complete registration.');
     }
 
-    if (!profile.is_active) {
-      return unauthorized(res, 'Account is deactivated. Contact support.');
+    if (profile.is_banned) {
+      return forbidden(res, 'Account is suspended. Please contact support.');
     }
 
     req.user = profile;
@@ -50,7 +50,31 @@ async function requireAuth(req, res, next) {
 }
 
 /**
- * Require admin role (checks users.role field or separate admin flag)
+ * Optional Auth middleware (populates req.user if valid token present, but doesn't block if missing)
+ */
+async function optionalAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '').trim();
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+      if (user) {
+        const { data: profile } = await supabaseAdmin
+          .from('users')
+          .select('id, full_name, role, work_email, company_id, trust_score')
+          .eq('id', user.id)
+          .single();
+        if (profile) req.user = profile;
+      }
+    }
+  } catch (e) {
+    // Ignore optional auth error
+  }
+  next();
+}
+
+/**
+ * Require superadmin role
  */
 async function requireAdmin(req, res, next) {
   try {
@@ -63,18 +87,17 @@ async function requireAdmin(req, res, next) {
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !user) return unauthorized(res, 'Invalid token');
 
-    // Check admin_users table
-    const { data: admin, error: adminErr } = await supabaseAdmin
-      .from('admin_users')
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from('users')
       .select('id, role')
       .eq('id', user.id)
       .single();
 
-    if (adminErr || !admin) {
-      return unauthorized(res, 'Admin access required');
+    if (profileErr || !profile || profile.role !== 'superadmin') {
+      return forbidden(res, 'Superadmin access required');
     }
 
-    req.admin = admin;
+    req.user = profile;
     req.token = token;
     next();
   } catch (err) {
@@ -82,4 +105,4 @@ async function requireAdmin(req, res, next) {
   }
 }
 
-module.exports = { requireAuth, requireAdmin };
+module.exports = { requireAuth, optionalAuth, requireAdmin };
