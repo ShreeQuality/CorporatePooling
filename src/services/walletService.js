@@ -357,45 +357,27 @@ async function transferCoins(senderId, recipientIdentifier, amount, note = '') {
     throw new Error('You cannot transfer coins to yourself.');
   }
 
-  // 3. Atomically transfer balances
-  // Debit sender
-  await supabaseAdmin
-    .from('wallets')
-    .update({
-      available_balance: senderWallet.available_balance - numAmount,
-      lifetime_spent: (senderWallet.lifetime_spent || 0) + numAmount,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', senderId);
-
-  // Credit recipient
-  const { data: recipWallet } = await supabaseAdmin
-    .from('wallets')
-    .select('available_balance, lifetime_earned')
-    .eq('user_id', recipient.id)
-    .single();
-
-  await supabaseAdmin
-    .from('wallets')
-    .update({
-      available_balance: (recipWallet?.available_balance || 0) + numAmount,
-      lifetime_earned: (recipWallet?.lifetime_earned || 0) + numAmount,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', recipient.id);
-
-  // 4. Log double-entry transaction
+  // 3. Single ACID RPC call — debit + credit + ledger in one PostgreSQL transaction.
+  // Replaces the two separate UPDATE calls that had a crash/race-condition risk.
+  // Stored procedure: 019_peer_transfer_rpc.sql → transfer_peer_coins()
   const idempotencyKey = `peer_transfer_${senderId}_${recipient.id}_${Date.now()}`;
-  await supabaseAdmin.from('coin_transactions').insert({
-    sender_id: senderId,
-    receiver_id: recipient.id,
-    amount: numAmount,
-    transaction_type: 'peer_transfer',
-    idempotency_key: idempotencyKey,
-    status: 'completed',
+  const { data: rpcResult, error: rpcErr } = await supabaseAdmin.rpc('transfer_peer_coins', {
+    p_sender_id:       senderId,
+    p_receiver_id:     recipient.id,
+    p_amount:          numAmount,
+    p_idempotency_key: idempotencyKey,
   });
 
-  // 5. Send celebratory in-app notification to recipient
+  if (rpcErr) throw new Error(`Peer transfer failed: ${rpcErr.message}`);
+
+  // Re-fetch sender's new balance for the response payload.
+  const { data: updatedSenderWallet } = await supabaseAdmin
+    .from('wallets')
+    .select('available_balance')
+    .eq('user_id', senderId)
+    .single();
+
+  // 4. Send celebratory in-app notification to recipient.
   await supabaseAdmin.from('notifications').insert({
     user_id: recipient.id,
     title: '💝 Colleague Coin Gift Received!',
@@ -408,7 +390,8 @@ async function transferCoins(senderId, recipientIdentifier, amount, note = '') {
     amount_transferred: numAmount,
     recipient_name: recipient.full_name,
     recipient_email: recipient.work_email,
-    new_sender_balance: senderWallet.available_balance - numAmount,
+    new_sender_balance: Number((updatedSenderWallet?.available_balance || 0).toFixed(2)),
+    transaction_id: rpcResult?.transaction_id || null,
   };
 }
 
@@ -418,13 +401,19 @@ async function transferCoins(senderId, recipientIdentifier, amount, note = '') {
 async function getWalletSummary(userId) {
   const { wallet, user } = await getWallet(userId);
 
-  // Fetch carbon saved from esg_carbon_logs
-  const { data: carbonLogs } = await supabaseAdmin
-    .from('esg_carbon_logs')
-    .select('co2_saved_kg')
-    .eq('user_id', userId);
+  // Fetch carpool ride count from corporate_attendance for CO2 savings estimate.
+  // Table: corporate_attendance (014_production_schema.sql, TABLE 15)
+  // Note: There is no esg_carbon_logs table — CO2 is derived from carpool attendance records.
+  // Estimate: Each carpool saves approx 2.1 kg CO2 vs solo car commute (IPCC average).
+  // Fetch carpool attendance count to compute lifetime CO2 saved
+  // Formula: average commute 12.5km * 0.15kg = ~1.88 kg CO2 saved per carpool trip
+  const { count: carpoolTrips } = await supabaseAdmin
+    .from('corporate_attendance')
+    .select('*', { count: 'exact', head: true })
+    .eq('employee_id', userId)
+    .eq('transport_mode', 'carpool');
 
-  const totalCo2Kg = (carbonLogs || []).reduce((acc, row) => acc + (Number(row.co2_saved_kg) || 0), 0);
+  const totalCo2Kg = (carpoolTrips || 0) * 1.88;
 
   return {
     user_id: userId,

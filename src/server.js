@@ -89,6 +89,13 @@ app.use((err, req, res, next) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────
+// Pre-warm wallet settings cache (Issue 3 fix: avoids ~50ms cold-load on first
+// booking request). walletService already calls this on module load, but
+// requiring it here makes the startup sequence explicit and testable.
+require('./services/walletService').initSettingsCache()
+  .then(() => console.log('[Startup] Wallet settings cache pre-warmed ✓'))
+  .catch((e) => console.warn('[Startup] Settings cache pre-warm failed (will use defaults):', e.message));
+
 app.listen(PORT, () => {
   console.log(`\n🚗 Corporate Pooling API`);
   console.log(`📡 Listening on http://localhost:${PORT}`);

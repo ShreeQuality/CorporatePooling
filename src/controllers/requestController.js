@@ -1,7 +1,6 @@
 // ============================================================
 // Request Controller — Corporate Pooling App
 // Ride request lifecycle: create → accept/reject → OTP → arrive → complete
-// Mirrors KarmaRide rideCompletion.js logic
 // ============================================================
 
 'use strict';
@@ -9,6 +8,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { generatePickupOtp } = require('../services/otpService');
 const { clearDriverLocation } = require('../services/gpsService');
+const { checkSufficiency } = require('../services/walletService'); // ← 3-Tier Waterfall (Subtask 2.3)
 const { ok, created, badRequest, notFound, forbidden, conflict, serverError } = require('../utils/response');
 
 // ─── Create Ride Request (Rider) ─────────────────────────────
@@ -50,10 +50,14 @@ async function createRequest(req, res) {
       return conflict(res, 'You already have a pending or accepted request for this ride');
     }
 
-    // Check rider has enough coins
+    // ── Wallet Solvency Check — 3-Tier Waterfall (walletService §2.3) ──────
+    // Uses: Corporate Grant Balance → Personal Balance → Recurring Overdraft
+    // This replaces the old flat coin_balance check which ignored grant coins.
     const coinsNeeded = ride.coin_per_seat;
-    if (req.user.coin_balance < coinsNeeded) {
-      return badRequest(res, `Insufficient coins. You need ${coinsNeeded} coins. Your balance: ${req.user.coin_balance}`);
+    const isRecurring = ride.time_type === 'recurring';
+    const solvency = await checkSufficiency(riderId, coinsNeeded, isRecurring);
+    if (!solvency.sufficient) {
+      return badRequest(res, solvency.message); // e.g. "Insufficient coins. Shortfall of 8 Coins."
     }
 
     // Generate pickup OTP
@@ -112,18 +116,18 @@ async function acceptRequest(req, res) {
     if (ride.driver_id !== driverId) return forbidden(res, 'Not your ride');
     if (ride.available_seats <= 0) return badRequest(res, 'Ride is full');
 
-    // Lock coins from rider
-    const { data: rider } = await supabaseAdmin
-      .from('users').select('coin_balance').eq('id', rideReq.rider_id).single();
-
-    if (!rider || rider.coin_balance < ride.coin_per_seat) {
-      // Reject — rider doesn't have enough coins
+    // ── Re-verify rider solvency at accept time (walletService §2.3) ────────
+    // Guards against the rare case where a rider's balance dropped between
+    // request submission and driver acceptance.
+    const riderSolvency = await checkSufficiency(rideReq.rider_id, ride.coin_per_seat, false);
+    if (!riderSolvency.sufficient) {
       await supabaseAdmin.from('ride_requests').update({ status: 'rejected' }).eq('id', reqId);
-      return badRequest(res, 'Rider has insufficient coins. Request auto-rejected.');
+      return badRequest(res, `Rider has insufficient coins (${riderSolvency.shortfall} Coins short). Request auto-rejected.`);
     }
 
-    // Atomic: lock coins + update request + decrement seat
-    const { error: rpcErr } = await supabaseAdmin.rpc('accept_ride_request', {
+    // ── Atomic ACID lock: escrow coins + accept request + decrement seat ─────
+    // Calls 015_stored_procedures.sql → accept_ride_request_atomic()
+    const { error: rpcErr } = await supabaseAdmin.rpc('accept_ride_request_atomic', {
       p_request_id: reqId,
       p_ride_id: rideReq.ride_id,
       p_rider_id: rideReq.rider_id,
@@ -231,8 +235,9 @@ async function driverMarkArrival(req, res) {
     if (!ride || ride.driver_id !== req.user.id) return forbidden(res, 'Not your ride');
 
     // If rider already marked arrival → mutual confirm → complete now
+    // Calls 015_stored_procedures.sql → complete_single_dropoff()
     if (rideReq.rider_marked_arrival) {
-      const result = await supabaseAdmin.rpc('complete_ride_for_rider', {
+      const result = await supabaseAdmin.rpc('complete_single_dropoff', {
         p_ride_id: rideReq.ride_id,
         p_rider_id: rideReq.rider_id,
       });
@@ -268,7 +273,9 @@ async function riderConfirmArrival(req, res) {
 
     // If driver already marked arrival → mutual confirm → complete
     if (rideReq.awaiting_confirm) {
-      const { data: result, error } = await supabaseAdmin.rpc('complete_ride_for_rider', {
+      // Calls 015_stored_procedures.sql → complete_single_dropoff()
+      const { data: result, error } = await supabaseAdmin.rpc('complete_single_dropoff', {
+        p_request_id: reqId,
         p_ride_id: rideReq.ride_id,
         p_rider_id: rideReq.rider_id,
       });

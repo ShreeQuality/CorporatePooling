@@ -6,7 +6,7 @@
 'use strict';
 
 const { supabaseAdmin } = require('../config/supabase');
-const { matchRides } = require('../services/matchingService');
+const { matchRides, fetchSpatialCandidateRides } = require('../services/matchingService');
 const { updateDriverLocation, clearDriverLocation } = require('../services/gpsService');
 const { routeTotalKm } = require('../utils/haversine');
 const { ok, created, badRequest, notFound, forbidden, serverError } = require('../utils/response');
@@ -101,46 +101,73 @@ async function postRide(req, res) {
  */
 async function searchRides(req, res) {
   try {
-    const { pickup_lat, pickup_lng, drop_lat, drop_lng,
-            time_type, depart_timestamp, recurring_days, flexibility } = req.query;
+    const {
+      pickup_lat, pickup_lng, drop_lat, drop_lng,
+      time_type, depart_timestamp, depart_date, recurring_days, flexibility,
+      seats_requested, max_radius_m,
+    } = req.query;
 
     if (!pickup_lat || !pickup_lng || !drop_lat || !drop_lng) {
       return badRequest(res, 'pickup_lat, pickup_lng, drop_lat, drop_lng are required');
     }
 
-    // Fetch all searchable rides from DB
-    const { data: rides, error } = await supabaseAdmin
-      .from('rides')
-      .select(`
-        id, driver_id, from_address, from_lat, from_lng,
-        to_address, to_lat, to_lng, route_points,
-        total_seats, available_seats, coin_per_seat,
-        time_type, depart_time, depart_timestamp, recurring_days,
-        ride_status, current_lat, current_lng, current_route_index,
-        distance_km, created_at,
-        users!driver_id(full_name, photo_url, karma_score, total_rides_given),
-        vehicles(type, registration_number, model, color)
-      `)
-      .in('ride_status', ['posted', 'started'])
-      .gt('available_seats', 0);
+    const riderId = req.user ? req.user.id : null;
+    const pLat = parseFloat(pickup_lat);
+    const pLng = parseFloat(pickup_lng);
+    const dLat = parseFloat(drop_lat);
+    const dLng = parseFloat(drop_lng);
+    const seats = parseInt(seats_requested, 10) || 1;
+    const radius = parseInt(max_radius_m, 10) || 1500;
 
-    if (error) return serverError(res, error, 'Failed to fetch rides');
+    // Determine target date if scheduled or timestamp provided
+    let targetDate = depart_date || null;
+    if (!targetDate && depart_timestamp) {
+      try {
+        const d = new Date(depart_timestamp);
+        if (!isNaN(d.getTime())) {
+          targetDate = d.toISOString().split('T')[0];
+        }
+      } catch (_) {}
+    }
+
+    // ── Tier 1: PostGIS Spatial Pre-Filter (< 5ms via GiST Index) ───────────
+    // Replaces the old full-table-scan query on public.rides
+    const candidateRides = await fetchSpatialCandidateRides(
+      riderId,
+      pLat,
+      pLng,
+      dLat,
+      dLng,
+      {
+        seatsRequested: seats,
+        maxRadiusMeters: radius,
+        timeType: time_type || null,
+        targetDate: targetDate,
+      }
+    );
 
     const rideWant = {
       time_type: time_type || 'now',
       depart_timestamp: depart_timestamp || null,
       recurring_days: recurring_days ? recurring_days.split(',') : [],
-      flexibility: parseInt(flexibility || '30'),
+      flexibility: parseInt(flexibility || '30', 10),
     };
 
+    // ── Tier 2: In-Memory Cross-Track Polyline Matching ─────────────────────
     const matched = matchRides(
-      rides || [],
-      parseFloat(pickup_lat), parseFloat(pickup_lng),
-      parseFloat(drop_lat), parseFloat(drop_lng),
+      candidateRides || [],
+      pLat,
+      pLng,
+      dLat,
+      dLng,
       rideWant
     );
 
-    return ok(res, { count: matched.length, rides: matched });
+    return ok(res, {
+      count: matched.length,
+      spatial_candidates_count: (candidateRides || []).length,
+      rides: matched,
+    });
   } catch (err) {
     return serverError(res, err);
   }
