@@ -14,7 +14,7 @@ enum AadhaarVerificationStep {
 }
 
 /// Screen 6: Aadhaar KYC & Identity Verification (Trust Shield Gateway)
-/// Phase 4: DigiLocker OAuth WebView Gateway Simulation & XML e-KYC Parsing
+/// Phase 5: Secure Offline QR Scanner & Anti-Fraud Selfie / Facial Liveness Check
 /// 100% Compliant with Screen 2 Golden Base Design System (Stardust Rainfall & Transparent Glassmorphism)
 class AadhaarKycScreen extends StatefulWidget {
   final void Function(AadhaarProfilePayload profile)? onKycSuccess;
@@ -60,6 +60,15 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
   // Loading State in DigiLocker Gateway
   bool _isDigiLockerLoading = false;
   String? _digiLockerError;
+
+  // QR Scanner State
+  bool _isQrTorchOn = false;
+
+  // Selfie Liveness State
+  bool _isCapturingSelfie = false;
+  int _livenessStep = 0; // 0: Ready, 1: Blinking, 2: Smiling, 3: Completed
+  double _faceMatchScore = 0.0;
+  bool _isFaceMatched = false;
 
   // DPDP Consent Checkbox state
   bool _isDpdpConsentGiven = false;
@@ -135,6 +144,8 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
         return const Color(0xFFFF9D00); // Amber Liveness Guide
       case AadhaarVerificationStep.digilockerModal:
         return const Color(0xFF2979FF); // DigiLocker Blue
+      case AadhaarVerificationStep.qrScannerModal:
+        return const Color(0xFF00E5FF); // Cyber Cyan
       default:
         return const Color(0xFF00E5FF); // Electric Cyan
     }
@@ -267,6 +278,55 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
     setState(() {
       _currentStep = AadhaarVerificationStep.qrScannerModal;
     });
+  }
+
+  /// Simulate QR Code Scan
+  void _simulateQrScan() {
+    HapticFeedback.mediumImpact();
+    final profile = AadhaarKycValidator.parseAadhaarQrPayload('UIDAI_SECURE_QR_ANANYA');
+    if (profile != null) {
+      setState(() {
+        _verifiedProfile = profile;
+        _currentStep = AadhaarVerificationStep.selfieLiveness;
+      });
+    }
+  }
+
+  /// Simulate Anti-Fraud Selfie Capture & Facial Liveness Analysis
+  Future<void> _captureSelfieAndVerifyLiveness() async {
+    setState(() {
+      _isCapturingSelfie = true;
+      _livenessStep = 1;
+    });
+
+    HapticFeedback.lightImpact();
+    await Future.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+
+    setState(() {
+      _livenessStep = 2;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+
+    HapticFeedback.heavyImpact();
+    setState(() {
+      _isCapturingSelfie = false;
+      _livenessStep = 3;
+      _faceMatchScore = 98.4;
+      _isFaceMatched = true;
+    });
+  }
+
+  /// Complete KYC and Navigate to verifiedSuccess
+  void _completeKycVerification() {
+    if (_verifiedProfile == null) return;
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _currentStep = AadhaarVerificationStep.verifiedSuccess;
+    });
+    widget.onKycSuccess?.call(_verifiedProfile!);
   }
 
   /// Shows DPDP Privacy Shield Explanatory Bottom Sheet
@@ -499,6 +559,10 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                 setState(() {
                   _currentStep = AadhaarVerificationStep.idInput;
                 });
+              } else if (_currentStep == AadhaarVerificationStep.selfieLiveness) {
+                setState(() {
+                  _currentStep = AadhaarVerificationStep.idInput;
+                });
               } else {
                 Navigator.maybePop(context);
               }
@@ -558,7 +622,9 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                           ? 'SYS.AUTH // FACE_LIVENESS'
                           : (_currentStep == AadhaarVerificationStep.digilockerModal
                               ? 'SYS.AUTH // DIGILOCKER_OAUTH'
-                              : 'SYS.AUTH // GOVT_KYC')),
+                              : (_currentStep == AadhaarVerificationStep.qrScannerModal
+                                  ? 'SYS.AUTH // SECURE_QR'
+                                  : 'SYS.AUTH // GOVT_KYC'))),
                   style: TextStyle(
                     color: accentColor,
                     fontSize: 11,
@@ -590,7 +656,9 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                     ? Icons.camera_front_rounded
                     : (_currentStep == AadhaarVerificationStep.digilockerModal
                         ? Icons.account_balance_rounded
-                        : Icons.verified_user_rounded)),
+                        : (_currentStep == AadhaarVerificationStep.qrScannerModal
+                            ? Icons.qr_code_scanner_rounded
+                            : Icons.verified_user_rounded))),
           ),
         ),
         const SizedBox(height: 14),
@@ -622,7 +690,9 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                       ? 'DigiLocker Gateway // MeitY'
                       : (_currentStep == AadhaarVerificationStep.selfieLiveness
                           ? 'Facial Liveness // Anti-Fraud'
-                          : 'UIDAI Trust Gateway // DPDP 2023'),
+                          : (_currentStep == AadhaarVerificationStep.qrScannerModal
+                              ? 'Secure QR // Offline UIDAI'
+                              : 'UIDAI Trust Gateway // DPDP 2023')),
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: accentColor,
@@ -643,7 +713,9 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
               ? 'DigiLocker OAuth Gateway'
               : (_currentStep == AadhaarVerificationStep.selfieLiveness
                   ? 'Verify Facial Liveness'
-                  : 'Verify Government Identity'),
+                  : (_currentStep == AadhaarVerificationStep.qrScannerModal
+                      ? 'Scan Secure Aadhaar QR'
+                      : 'Verify Government Identity')),
           textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 24,
@@ -660,7 +732,9 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
               ? 'Secure tokenized e-KYC retrieval directly from National e-Governance Division.'
               : (_currentStep == AadhaarVerificationStep.selfieLiveness
                   ? 'Match your live photo against the verified government e-KYC record.'
-                  : 'Mandatory KYC under DPDP Act 2023 for 100% verified & safe commuter carpools.'),
+                  : (_currentStep == AadhaarVerificationStep.qrScannerModal
+                      ? 'Point camera at the printed QR code on your Aadhaar card or e-Aadhaar PDF.'
+                      : 'Mandatory KYC under DPDP Act 2023 for 100% verified & safe commuter carpools.')),
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,
@@ -679,11 +753,382 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
         return _buildIdInputAndConsentCard(accentColor);
       case AadhaarVerificationStep.digilockerModal:
         return _buildDigiLockerGatewayCard(accentColor);
+      case AadhaarVerificationStep.qrScannerModal:
+        return _buildQrScannerCard(accentColor);
       case AadhaarVerificationStep.selfieLiveness:
-        return _buildSelfieLivenessPreviewCard(accentColor);
+        return _buildSelfieLivenessCard(accentColor);
       default:
         return _buildIdInputAndConsentCard(accentColor);
     }
+  }
+
+  /// Phase 5: Secure Offline Aadhaar QR Scanner View
+  Widget _buildQrScannerCard(Color accentColor) {
+    return Container(
+      key: const Key('aadhaar_qr_scanner_view'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Holographic Camera Viewfinder Frame
+          Container(
+            height: 220,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.6),
+                width: 2,
+              ),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Corner Targeting Reticles
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  child: Icon(Icons.crop_free_rounded, color: accentColor, size: 36),
+                ),
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Icon(Icons.crop_free_rounded, color: accentColor, size: 36),
+                ),
+                Positioned(
+                  bottom: 16,
+                  left: 16,
+                  child: Icon(Icons.crop_free_rounded, color: accentColor, size: 36),
+                ),
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: Icon(Icons.crop_free_rounded, color: accentColor, size: 36),
+                ),
+
+                // Center Laser Guide
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.qr_code_scanner_rounded,
+                      size: 54,
+                      color: accentColor.withValues(alpha: 0.8),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Align Aadhaar QR in Viewfinder',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Flashlight Toggle Button
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: IconButton(
+                    key: const Key('qr_torch_button'),
+                    icon: Icon(
+                      _isQrTorchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                      color: _isQrTorchOn ? const Color(0xFFFFD600) : Colors.white70,
+                    ),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      setState(() {
+                        _isQrTorchOn = !_isQrTorchOn;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          // Primary Scan Trigger Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              key: const Key('simulate_qr_scan_button'),
+              onPressed: _simulateQrScan,
+              icon: const Icon(Icons.camera_alt_rounded, size: 18),
+              label: const Text(
+                'Simulate Camera QR Detection',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E5FF),
+                foregroundColor: const Color(0xFF050814),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // Cancel & Return Button
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: TextButton(
+              key: const Key('qr_cancel_button'),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                setState(() {
+                  _currentStep = AadhaarVerificationStep.idInput;
+                });
+              },
+              child: Text(
+                'Cancel & Return',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Phase 5: Anti-Fraud Selfie & Facial Liveness Verification Card
+  Widget _buildSelfieLivenessCard(Color accentColor) {
+    final profile = _verifiedProfile;
+
+    return Container(
+      key: const Key('selfie_liveness_card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: _isFaceMatched
+              ? const Color(0xFF00E676).withValues(alpha: 0.5)
+              : const Color(0xFFFF9D00).withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // e-KYC Extracted Success Chip
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E676).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'UIDAI Signed e-KYC Record Ready',
+                  style: TextStyle(
+                    color: Color(0xFF69F0AE),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Extracted Profile Details Box
+          if (profile != null) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              ),
+              child: Column(
+                children: [
+                  _buildProfileRow('Full Legal Name', profile.fullName),
+                  const Divider(color: Colors.white10, height: 16),
+                  _buildProfileRow('Masked ID', profile.maskedAadhaar),
+                  const Divider(color: Colors.white10, height: 16),
+                  _buildProfileRow('Date of Birth', profile.dob),
+                  const Divider(color: Colors.white10, height: 16),
+                  _buildProfileRow('Jurisdiction', '${profile.district}, ${profile.state}'),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // Live Camera Oval Frame / Viewfinder
+          Center(
+            child: Container(
+              key: const Key('selfie_camera_viewfinder'),
+              width: 170,
+              height: 220,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(85),
+                border: Border.all(
+                  color: _isFaceMatched
+                      ? const Color(0xFF00E676)
+                      : (_isCapturingSelfie ? const Color(0xFFFF9D00) : Colors.white30),
+                  width: 3,
+                ),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.05),
+                    Colors.white.withValues(alpha: 0.02),
+                  ],
+                ),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Icon(
+                    _isFaceMatched
+                        ? Icons.face_retouching_natural_rounded
+                        : Icons.face_rounded,
+                    size: 80,
+                    color: _isFaceMatched
+                        ? const Color(0xFF00E676)
+                        : Colors.white.withValues(alpha: 0.4),
+                  ),
+                  if (_isCapturingSelfie)
+                    const Positioned.fill(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: Color(0xFFFF9D00),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Liveness Feedback Text / Instruction
+          Center(
+            child: Text(
+              _isFaceMatched
+                  ? 'Biometric Match: $_faceMatchScore% ✓ (UIDAI Verified)'
+                  : (_livenessStep == 1
+                      ? '👁️ Blink eyes slowly...'
+                      : (_livenessStep == 2
+                          ? '😊 Smile naturally...'
+                          : 'Position your face within the oval')),
+              style: TextStyle(
+                color: _isFaceMatched ? const Color(0xFF00E676) : const Color(0xFFFFB74D),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Capture / Action Button
+          if (!_isFaceMatched) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                key: const Key('capture_selfie_button'),
+                onPressed: _isCapturingSelfie ? null : _captureSelfieAndVerifyLiveness,
+                icon: const Icon(Icons.camera_rounded, size: 18),
+                label: Text(
+                  _isCapturingSelfie ? 'Analyzing Biometrics...' : 'Capture Live Selfie',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF9D00),
+                  foregroundColor: const Color(0xFF050814),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+          ] else ...[
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                key: const Key('complete_kyc_button'),
+                onPressed: _completeKycVerification,
+                icon: const Icon(Icons.verified_user_rounded, size: 18),
+                label: const Text(
+                  'Confirm & Complete KYC',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E676),
+                  foregroundColor: const Color(0xFF050814),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.6),
+            fontSize: 12,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
   }
 
   /// Phase 4: DigiLocker OAuth Gateway Card Simulation
@@ -978,121 +1423,6 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
           ),
         ],
       ),
-    );
-  }
-
-  /// Selfie Liveness & Verified Profile Preview (Phase 4 Bridge to Phase 5)
-  Widget _buildSelfieLivenessPreviewCard(Color accentColor) {
-    final profile = _verifiedProfile;
-
-    return Container(
-      key: const Key('selfie_liveness_card'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: const Color(0xFFFF9D00).withValues(alpha: 0.4),
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // e-KYC Extracted Success Chip
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF00E676).withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 16),
-                SizedBox(width: 8),
-                Text(
-                  'UIDAI Signed XML e-KYC Extracted',
-                  style: TextStyle(
-                    color: Color(0xFF69F0AE),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // Extracted Profile Details Box
-          if (profile != null) ...[
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-              ),
-              child: Column(
-                children: [
-                  _buildProfileRow('Full Legal Name', profile.fullName),
-                  const Divider(color: Colors.white10, height: 16),
-                  _buildProfileRow('Masked ID', profile.maskedAadhaar),
-                  const Divider(color: Colors.white10, height: 16),
-                  _buildProfileRow('Date of Birth', profile.dob),
-                  const Divider(color: Colors.white10, height: 16),
-                  _buildProfileRow('Jurisdiction', '${profile.district}, ${profile.state}'),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 20),
-
-          // Liveness Instruction
-          const Text(
-            'Step 2: Anti-Fraud Selfie Match',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Align your face within the holographic HUD frame to complete identity verification.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.6),
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfileRow(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.6),
-            fontSize: 12,
-          ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-          ),
-        ),
-      ],
     );
   }
 

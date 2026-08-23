@@ -4,9 +4,9 @@ import 'package:corporate_pooling_app/screens/auth/aadhaar_kyc_screen.dart';
 import 'package:corporate_pooling_app/core/services/aadhaar_kyc_validator.dart';
 
 void main() {
-  Widget createTestWidget() {
-    return const MaterialApp(
-      home: AadhaarKycScreen(),
+  Widget createTestWidget({void Function(AadhaarProfilePayload)? onKycSuccess}) {
+    return MaterialApp(
+      home: AadhaarKycScreen(onKycSuccess: onKycSuccess),
     );
   }
 
@@ -20,7 +20,7 @@ void main() {
   final checkDigit16 = AadhaarKycValidator.generateVerhoeffCheckDigit(testPrefix15);
   final validVid16 = '$testPrefix15$checkDigit16';
 
-  group('AadhaarKycScreen - Phase 2, 3 & 4 Tests', () {
+  group('AadhaarKycScreen - Phase 2 to 5 Comprehensive Tests', () {
     testWidgets('TC-6.01-UI: Screen loads with Stardust rainfall, Top Navigation Bar and Back Button', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
@@ -243,11 +243,97 @@ void main() {
 
       // Verify parsed XML payload preview on Selfie Liveness step
       expect(find.byKey(const Key('selfie_liveness_card')), findsOneWidget);
-      expect(find.text('UIDAI Signed XML e-KYC Extracted'), findsOneWidget);
+      expect(find.text('UIDAI Signed e-KYC Record Ready'), findsOneWidget);
       expect(find.text('Rahul Kumar'), findsOneWidget);
       expect(find.text('15/08/1996'), findsOneWidget);
       expect(find.text('Bengaluru, Karnataka'), findsOneWidget);
       expect(find.text('SYS.AUTH // FACE_LIVENESS'), findsOneWidget);
+    });
+
+    testWidgets('TC-6.16 to TC-6.19: Secure Offline QR Scanner opens, toggles torch, detects QR and extracts payload', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createTestWidget());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Check DPDP Consent
+      await tester.tap(find.byKey(const Key('dpdp_consent_card')));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Tap Scan Aadhaar QR
+      final qrBtn = find.byKey(const Key('scan_qr_button'));
+      await tester.ensureVisible(qrBtn);
+      await tester.tap(qrBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify QR Scanner view
+      expect(find.byKey(const Key('aadhaar_qr_scanner_view')), findsOneWidget);
+      expect(find.text('Align Aadhaar QR in Viewfinder'), findsOneWidget);
+      expect(find.text('SYS.AUTH // SECURE_QR'), findsOneWidget);
+
+      // Toggle Torch
+      final torchBtn = find.byKey(const Key('qr_torch_button'));
+      await tester.tap(torchBtn);
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.byIcon(Icons.flash_on_rounded), findsOneWidget);
+
+      // Simulate QR scan
+      final simQrBtn = find.byKey(const Key('simulate_qr_scan_button'));
+      await tester.tap(simQrBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify payload extracted from QR (Ananya Sharma, Pune, Maharashtra)
+      expect(find.byKey(const Key('selfie_liveness_card')), findsOneWidget);
+      expect(find.text('Ananya Sharma'), findsOneWidget);
+      expect(find.text('22/11/1998'), findsOneWidget);
+      expect(find.text('Pune, Maharashtra'), findsOneWidget);
+    });
+
+    testWidgets('TC-6.20 to TC-6.23: Anti-Fraud Selfie Capture analyzes biometrics and completes verification', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      AadhaarProfilePayload? callbackProfile;
+      await tester.pumpWidget(createTestWidget(onKycSuccess: (profile) {
+        callbackProfile = profile;
+      }));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Consent and QR detection
+      await tester.tap(find.byKey(const Key('dpdp_consent_card')));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('scan_qr_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const Key('simulate_qr_scan_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 2. Selfie Viewfinder & Capture
+      expect(find.byKey(const Key('selfie_camera_viewfinder')), findsOneWidget);
+      final captureBtn = find.byKey(const Key('capture_selfie_button'));
+      await tester.ensureVisible(captureBtn);
+      await tester.tap(captureBtn);
+
+      // 3. Step through biometric analysis
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.textContaining('Biometric Match: 98.4%'), findsOneWidget);
+      expect(find.byKey(const Key('complete_kyc_button')), findsOneWidget);
+
+      // 4. Confirm & Complete KYC
+      final completeBtn = find.byKey(const Key('complete_kyc_button'));
+      await tester.tap(completeBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 5. Verify callback was executed with verified profile
+      expect(callbackProfile, isNotNull);
+      expect(callbackProfile!.fullName, 'Ananya Sharma');
+      expect(callbackProfile!.district, 'Pune');
     });
   });
 }
