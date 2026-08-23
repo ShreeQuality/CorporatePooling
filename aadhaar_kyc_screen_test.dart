@@ -20,7 +20,7 @@ void main() {
   final checkDigit16 = AadhaarKycValidator.generateVerhoeffCheckDigit(testPrefix15);
   final validVid16 = '$testPrefix15$checkDigit16';
 
-  group('AadhaarKycScreen - Phase 2 to 5 Comprehensive Tests', () {
+  group('AadhaarKycScreen - Phase 2 to 6 Comprehensive Tests', () {
     testWidgets('TC-6.01-UI: Screen loads with Stardust rainfall, Top Navigation Bar and Back Button', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
@@ -334,6 +334,58 @@ void main() {
       expect(callbackProfile, isNotNull);
       expect(callbackProfile!.fullName, 'Ananya Sharma');
       expect(callbackProfile!.district, 'Pune');
+    });
+
+    testWidgets('TC-6.24 to TC-6.30: Phase 6 Verified Profile Card renders emerald trust badges, metadata grid and hand-off CTA', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      AadhaarProfilePayload? callbackProfile;
+      await tester.pumpWidget(createTestWidget(onKycSuccess: (profile) {
+        callbackProfile = profile;
+      }));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Complete DigiLocker e-KYC
+      await tester.enterText(find.byKey(const Key('aadhaar_input_field')), validAadhaar12);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('dpdp_consent_card')));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_digilocker_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const Key('digilocker_authorize_button')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 2. Perform Facial Liveness
+      await tester.tap(find.byKey(const Key('capture_selfie_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const Key('complete_kyc_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 3. Verify Phase 6 Success State & Profile Card
+      expect(find.byKey(const Key('verified_profile_card')), findsOneWidget);
+      expect(find.text('SYS.AUTH // KYC_VERIFIED'), findsOneWidget);
+      expect(find.text('Identity Verified Successfully'), findsOneWidget);
+      expect(find.text('Rahul Kumar'), findsOneWidget);
+      expect(find.text('•••• •••• ${validAadhaar12.substring(8)}'), findsOneWidget);
+      expect(find.text('15/08/1996'), findsOneWidget);
+      expect(find.text('Bengaluru, Karnataka'), findsOneWidget);
+      expect(find.text('98.4% Match Confidence ✓'), findsOneWidget);
+      expect(find.text('Zero Plain-Text Storage ✓'), findsOneWidget);
+
+      // 4. Test Hand-off CTA button
+      final proceedBtn = find.byKey(const Key('continue_to_next_screen_button'));
+      expect(proceedBtn, findsOneWidget);
+      await tester.tap(proceedBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(callbackProfile, isNotNull);
+      expect(callbackProfile!.fullName, 'Rahul Kumar');
+      expect(callbackProfile!.isKycVerified, isTrue);
     });
   });
 }
