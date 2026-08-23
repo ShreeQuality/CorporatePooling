@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../widgets/star_rain_1.dart';
 import '../../widgets/jarvis_holo_hud.dart';
 import '../../core/services/corporate_verify_validator.dart';
+import 'aadhaar_kyc_screen.dart';
 
 /// Screen 5: Commuter Verification & Identity Gateway
 /// Phase 7: End-to-End Visual Polish, Final Edge-Case Handling & Screen Transition Routing
@@ -638,9 +639,11 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
       ),
     );
 
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop(payload);
-    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => AadhaarKycScreen(previousPayload: payload),
+      ),
+    );
   }
 
   void _handlePublicUserContinue() {
@@ -683,9 +686,11 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
       ),
     );
 
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop(publicPayload);
-    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => AadhaarKycScreen(previousPayload: publicPayload),
+      ),
+    );
   }
 
   @override
