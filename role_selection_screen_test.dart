@@ -10,7 +10,7 @@ void main() {
     );
   }
 
-  group('RoleSelectionScreen (Public User vs Corporate Employee)', () {
+  group('RoleSelectionScreen (Company vs User)', () {
     testWidgets('Renders Choose Your Journey title, subtitle, and JARVIS HUD', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
@@ -27,7 +27,7 @@ void main() {
       );
     });
 
-    testWidgets('Displays Public User (first) and Corporate Employee (second) cards', (tester) async {
+    testWidgets('Displays Company (first) and User (second) cards', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -36,15 +36,15 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text('Public User'), findsOneWidget);
-      expect(find.text('Corporate Employee'), findsOneWidget);
-      expect(find.text('🌟 Verified Commuter'), findsOneWidget);
+      expect(find.text('Company'), findsOneWidget);
+      expect(find.text('User'), findsOneWidget);
       expect(find.text('🏢 Corporate Partner'), findsOneWidget);
-      expect(find.byIcon(Icons.person_rounded), findsWidgets);
+      expect(find.text('🌟 Verified Commuter'), findsOneWidget);
       expect(find.byIcon(Icons.apartment_rounded), findsWidgets);
+      expect(find.byIcon(Icons.person_rounded), findsWidgets);
     });
 
-    testWidgets('Selecting Public User enables continue button and routes to Screen 5 Public portal', (tester) async {
+    testWidgets('Selecting User enables continue button and routes to Screen 5 Public portal', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -53,8 +53,8 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Tap Public User card
-      await tester.tap(find.text('Public User'));
+      // Tap User card
+      await tester.tap(find.text('User'));
       await tester.pump(const Duration(milliseconds: 300));
 
       // Check icon indicates selection
@@ -72,7 +72,7 @@ void main() {
       expect(find.text('Public Commuter Portal'), findsOneWidget);
     });
 
-    testWidgets('Selecting Corporate Employee switches selection and routes to Screen 5 Corporate portal', (tester) async {
+    testWidgets('Selecting Company switches selection and routes to Screen 5 Corporate portal', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -81,8 +81,8 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Tap Corporate Employee card
-      await tester.tap(find.text('Corporate Employee'));
+      // Tap Company card
+      await tester.tap(find.text('Company'));
       await tester.pump(const Duration(milliseconds: 300));
 
       // Check icon indicates selection
