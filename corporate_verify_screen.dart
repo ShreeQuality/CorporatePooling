@@ -87,11 +87,11 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
   void initState() {
     super.initState();
 
-    // Check if role was preselected
-    if (widget.preselectedRole == 'public_user') {
-      _identityMode = CommuterIdentityMode.publicUser;
-    } else {
+    // Check if role was preselected (defaults to public_user)
+    if (widget.preselectedRole == 'corporate_employee') {
       _identityMode = CommuterIdentityMode.corporateEmployee;
+    } else {
+      _identityMode = CommuterIdentityMode.publicUser;
     }
 
     _shakeController = AnimationController(
@@ -983,23 +983,23 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
       ),
       child: Row(
         children: [
-          // Tab 1: Corporate Employee
-          Expanded(
-            child: _buildIdentityTabPill(
-              title: 'Corporate Employee',
-              icon: Icons.apartment_rounded,
-              mode: CommuterIdentityMode.corporateEmployee,
-              accentColor: const Color(0xFF00E5FF),
-            ),
-          ),
-
-          // Tab 2: Public User
+          // Tab 1: Public User
           Expanded(
             child: _buildIdentityTabPill(
               title: 'Public User',
               icon: Icons.person_rounded,
               mode: CommuterIdentityMode.publicUser,
               accentColor: const Color(0xFFFF9D00),
+            ),
+          ),
+
+          // Tab 2: Corporate Employee
+          Expanded(
+            child: _buildIdentityTabPill(
+              title: 'Corporate Employee',
+              icon: Icons.apartment_rounded,
+              mode: CommuterIdentityMode.corporateEmployee,
+              accentColor: const Color(0xFF00E5FF),
             ),
           ),
         ],

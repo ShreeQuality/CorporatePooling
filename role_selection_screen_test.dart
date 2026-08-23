@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:corporate_pooling_app/screens/auth/role_selection_screen.dart';
+import 'package:corporate_pooling_app/screens/auth/corporate_verify_screen.dart';
 
 void main() {
   Widget createTestWidget() {
@@ -9,7 +10,7 @@ void main() {
     );
   }
 
-  group('RoleSelectionScreen (Company vs User)', () {
+  group('RoleSelectionScreen (Public User vs Corporate Employee)', () {
     testWidgets('Renders Choose Your Journey title, subtitle, and JARVIS HUD', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
@@ -26,7 +27,7 @@ void main() {
       );
     });
 
-    testWidgets('Displays Company and User cards with transparent options', (tester) async {
+    testWidgets('Displays Public User (first) and Corporate Employee (second) cards', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -35,15 +36,15 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text('Company'), findsOneWidget);
-      expect(find.text('User'), findsOneWidget);
-      expect(find.text('🏢 Corporate Partner'), findsOneWidget);
+      expect(find.text('Public User'), findsOneWidget);
+      expect(find.text('Corporate Employee'), findsOneWidget);
       expect(find.text('🌟 Verified Commuter'), findsOneWidget);
+      expect(find.text('🏢 Corporate Partner'), findsOneWidget);
+      expect(find.byIcon(Icons.person_rounded), findsWidgets);
       expect(find.byIcon(Icons.apartment_rounded), findsWidgets);
-      expect(find.byIcon(Icons.person_rounded), findsOneWidget);
     });
 
-    testWidgets('Selecting Company enables continue button and triggers selection state', (tester) async {
+    testWidgets('Selecting Public User enables continue button and routes to Screen 5 Public portal', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -52,22 +53,26 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Tap Company card
-      await tester.tap(find.text('Company'));
+      // Tap Public User card
+      await tester.tap(find.text('Public User'));
       await tester.pump(const Duration(milliseconds: 300));
 
       // Check icon indicates selection
       expect(find.byIcon(Icons.check), findsOneWidget);
 
       // Tap Continue button
-      await tester.ensureVisible(find.text('Continue'));
-      await tester.tap(find.text('Continue'));
-      await tester.pump();
+      final continueBtn = find.text('Continue');
+      await tester.ensureVisible(continueBtn);
+      await tester.tap(continueBtn);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
 
-      expect(find.textContaining('Company Account Confirmed'), findsOneWidget);
+      // Navigated to CorporateVerifyScreen in Public mode
+      expect(find.byType(CorporateVerifyScreen), findsOneWidget);
+      expect(find.text('Public Commuter Portal'), findsOneWidget);
     });
 
-    testWidgets('Selecting User switches selection and triggers User snackbar', (tester) async {
+    testWidgets('Selecting Corporate Employee switches selection and routes to Screen 5 Corporate portal', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -76,19 +81,23 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Tap User card
-      await tester.tap(find.text('User'));
+      // Tap Corporate Employee card
+      await tester.tap(find.text('Corporate Employee'));
       await tester.pump(const Duration(milliseconds: 300));
 
       // Check icon indicates selection
       expect(find.byIcon(Icons.check), findsOneWidget);
 
       // Tap Continue button
-      await tester.ensureVisible(find.text('Continue'));
-      await tester.tap(find.text('Continue'));
-      await tester.pump();
+      final continueBtn = find.text('Continue');
+      await tester.ensureVisible(continueBtn);
+      await tester.tap(continueBtn);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
 
-      expect(find.textContaining('User Account Confirmed'), findsOneWidget);
+      // Navigated to CorporateVerifyScreen in Corporate mode
+      expect(find.byType(CorporateVerifyScreen), findsOneWidget);
+      expect(find.text('Corporate Identity Gate'), findsOneWidget);
     });
   });
 }

@@ -3,64 +3,60 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:corporate_pooling_app/screens/auth/corporate_verify_screen.dart';
 
 void main() {
-  Widget buildTestApp() {
-    return const MaterialApp(
-      home: CorporateVerifyScreen(),
+  Widget buildTestApp({String? preselectedRole = 'corporate_employee'}) {
+    return MaterialApp(
+      home: CorporateVerifyScreen(preselectedRole: preselectedRole),
     );
   }
 
   group('Category 1: UI Initialization & Mode Selection (TC-5.01 to TC-5.04)', () {
-    testWidgets('TC-5.01 & Header: Screen loads with Corporate Employee selected and HUD header', (tester) async {
-      await tester.pumpWidget(buildTestApp());
+    testWidgets('TC-5.01 & Header: Screen loads with Public User selected first by default and HUD header', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: CorporateVerifyScreen()));
       await tester.pump(const Duration(milliseconds: 100));
 
       // Header Elements
-      expect(find.text('Corporate Identity Gate'), findsOneWidget);
-      expect(find.text('Verify Corporate Access'), findsOneWidget);
-      expect(find.text('SYS.AUTH // HR_GATE'), findsOneWidget);
-
-      // Identity Mode Tabs
-      expect(find.text('Corporate Employee'), findsOneWidget);
-      expect(find.text('Public User'), findsOneWidget);
-
-      // Corporate Section is Present by Default
-      expect(find.byKey(const Key('section_corporate_employee')), findsOneWidget);
-      expect(find.byKey(const Key('work_email_input')), findsOneWidget);
-      expect(find.byKey(const Key('section_public_user')), findsNothing);
-    });
-
-    testWidgets('TC-5.03 & TC-5.04: Mode Selector Toggle swaps to Public User mode', (tester) async {
-      await tester.pumpWidget(buildTestApp());
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // Switch to Public User Mode
-      final publicToggle = find.byKey(const Key('toggle_mode_publicUser'));
-      expect(publicToggle, findsOneWidget);
-
-      await tester.tap(publicToggle);
-      await tester.pump(const Duration(milliseconds: 250));
-
-      // Verify UI Swapped to Public User Profile Card
-      expect(find.byKey(const Key('section_public_user')), findsOneWidget);
-      expect(find.text('Open Commuter Pool'), findsOneWidget);
-      expect(find.text('100% Mandatory Govt KYC'), findsOneWidget);
-      expect(find.text('Cashless Karma Coins'), findsOneWidget);
-      expect(find.text('Live 112 SOS & Family Tracking'), findsOneWidget);
-      expect(find.byKey(const Key('continue_public_kyc_button')), findsOneWidget);
-      expect(find.byKey(const Key('section_corporate_employee')), findsNothing);
-
-      // Header dynamically updates for Public User
       expect(find.text('Public Commuter Portal'), findsOneWidget);
       expect(find.text('Public Commuter Network'), findsOneWidget);
       expect(find.text('SYS.AUTH // PUBLIC_GATE'), findsOneWidget);
 
-      // Switch back to Corporate Employee
+      // Identity Mode Tabs (Public User First, Corporate Employee Second)
+      expect(find.text('Public User'), findsOneWidget);
+      expect(find.text('Corporate Employee'), findsOneWidget);
+
+      // Public Section is Present by Default
+      expect(find.byKey(const Key('section_public_user')), findsOneWidget);
+      expect(find.byKey(const Key('continue_public_kyc_button')), findsOneWidget);
+      expect(find.byKey(const Key('section_corporate_employee')), findsNothing);
+    });
+
+    testWidgets('TC-5.03 & TC-5.04: Mode Selector Toggle swaps to Corporate Employee mode and back', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: CorporateVerifyScreen()));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Switch to Corporate Employee Mode
       final corpToggle = find.byKey(const Key('toggle_mode_corporateEmployee'));
+      expect(corpToggle, findsOneWidget);
+
       await tester.tap(corpToggle);
       await tester.pump(const Duration(milliseconds: 250));
 
+      // Verify UI Swapped to Corporate Employee Card & Input
       expect(find.byKey(const Key('section_corporate_employee')), findsOneWidget);
+      expect(find.byKey(const Key('work_email_input')), findsOneWidget);
       expect(find.byKey(const Key('section_public_user')), findsNothing);
+
+      // Header dynamically updates for Corporate
+      expect(find.text('Corporate Identity Gate'), findsOneWidget);
+      expect(find.text('Verify Corporate Access'), findsOneWidget);
+      expect(find.text('SYS.AUTH // HR_GATE'), findsOneWidget);
+
+      // Switch back to Public User
+      final publicToggle = find.byKey(const Key('toggle_mode_publicUser'));
+      await tester.tap(publicToggle);
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byKey(const Key('section_public_user')), findsOneWidget);
+      expect(find.byKey(const Key('section_corporate_employee')), findsNothing);
     });
 
     testWidgets('TC-5.27: Tapping Public User Continue CTA triggers confirmation snackbar', (tester) async {
@@ -69,12 +65,8 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(buildTestApp());
+      await tester.pumpWidget(const MaterialApp(home: CorporateVerifyScreen()));
       await tester.pump(const Duration(milliseconds: 100));
-
-      // Switch to Public User
-      await tester.tap(find.byKey(const Key('toggle_mode_publicUser')));
-      await tester.pump(const Duration(milliseconds: 250));
 
       // Tap "Continue to Govt KYC Verification" CTA
       final continueBtn = find.byKey(const Key('continue_public_kyc_button'));
@@ -474,6 +466,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CorporateVerifyScreen(
+            preselectedRole: 'corporate_employee',
             onVerificationSuccess: (data) => verifiedData = data,
           ),
         ),
