@@ -294,4 +294,96 @@ void main() {
       expect(find.textContaining('Locked ('), findsOneWidget);
     });
   });
+
+  group('Category 7: HR Invite Code & Corporate Passkey Bypass Flow (TC-5.29 to TC-5.32)', () {
+    testWidgets('TC-5.29: Tapping Have Invite Code switches to HR Invite Code mode and back to Work Email', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Initial state has work email input
+      expect(find.byKey(const Key('work_email_input')), findsOneWidget);
+      expect(find.byKey(const Key('have_invite_code_button')), findsOneWidget);
+
+      // Tap switch to Invite Code
+      await tester.tap(find.byKey(const Key('have_invite_code_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Invite Code section is now rendered
+      expect(find.byKey(const Key('section_corporate_invite_code')), findsOneWidget);
+      expect(find.byKey(const Key('invite_code_input')), findsOneWidget);
+      expect(find.text('HR Corporate Passkey'), findsOneWidget);
+      expect(find.text('SYS.AUTH // HR_PASSKEY'), findsOneWidget);
+
+      // Tap Switch back to Work Email
+      await tester.tap(find.byKey(const Key('switch_to_email_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('work_email_input')), findsOneWidget);
+      expect(find.byKey(const Key('section_corporate_invite_code')), findsNothing);
+    });
+
+    testWidgets('TC-5.30 & TC-5.31: Invalid or expired code triggers inline error and shake feedback', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('have_invite_code_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Type incomplete code -> button remains disabled
+      await tester.enterText(find.byKey(const Key('invite_code_input')), 'FAIL');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Type 6 characters (FAIL99) -> button activates
+      await tester.enterText(find.byKey(const Key('invite_code_input')), 'FAIL99');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Tap Verify Passkey
+      await tester.tap(find.byKey(const Key('verify_invite_button')));
+      await tester.pump(const Duration(milliseconds: 350));
+
+      // Verify error banner is rendered
+      expect(find.byKey(const Key('invite_error_banner')), findsOneWidget);
+      expect(find.text('Invalid or expired HR invite code.'), findsOneWidget);
+    });
+
+    testWidgets('TC-5.32: Valid code (INFY26) recognizes company and verifies corporate passkey', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('have_invite_code_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Type INFY26
+      await tester.enterText(find.byKey(const Key('invite_code_input')), 'INFY26');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Verify recognized passkey badge
+      expect(find.byKey(const Key('invite_company_recognition_chip')), findsOneWidget);
+      expect(find.text('Recognized Passkey: Infosys Technologies'), findsOneWidget);
+
+      // Tap Verify Passkey
+      await tester.tap(find.byKey(const Key('verify_invite_button')));
+      await tester.pump(const Duration(milliseconds: 350));
+
+      // Verify success verified badge & CTA button
+      expect(find.byKey(const Key('invite_verified_badge')), findsOneWidget);
+      expect(find.text('Verified for Infosys Technologies!'), findsOneWidget);
+      expect(find.text('Passkey Verified ✓ Proceed to KYC'), findsOneWidget);
+    });
+  });
 }

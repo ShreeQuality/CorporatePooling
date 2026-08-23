@@ -6,7 +6,7 @@ import '../../widgets/jarvis_holo_hud.dart';
 import '../../core/services/corporate_verify_validator.dart';
 
 /// Screen 5: Commuter Verification & Identity Gateway
-/// Phase 5: 6-Digit OTP Verification Box, 60s Resend Countdown, Clipboard Smart Paste & Error Handling
+/// Phase 6: HR Invite Code & Corporate Passkey Bypass Flow (TC-5.28 to TC-5.32)
 /// 100% Compliant with Screen 2 Golden Base Design System (Stardust Rainfall & Transparent Glassmorphism)
 enum CommuterIdentityMode {
   corporateEmployee,
@@ -25,7 +25,7 @@ class CorporateVerifyScreen extends StatefulWidget {
   State<CorporateVerifyScreen> createState() => _CorporateVerifyScreenState();
 }
 
-class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
+class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with SingleTickerProviderStateMixin {
   // Identity Mode (Corporate Employee vs Public User)
   CommuterIdentityMode _identityMode = CommuterIdentityMode.corporateEmployee;
 
@@ -49,6 +49,12 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
   bool _isVerifyingOtp = false;
   bool _isOtpVerified = false;
 
+  // Invite Code State
+  bool _isVerifyingInviteCode = false;
+  bool _isInviteCodeVerified = false;
+  String? _inviteCodeErrorMessage;
+  String? _verifiedInviteCompany;
+
   // Resend Timer (60s)
   Timer? _resendTimer;
   int _resendCountdown = 60;
@@ -64,9 +70,27 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
   String? _detectedClipboardOtp;
   String? _otpErrorMessage;
 
+  // Physics Shake Animation for Error Feedback
+  late AnimationController _shakeController;
+  late Animation<double> _shakeAnimation;
+
   @override
   void initState() {
     super.initState();
+
+    _shakeController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+
+    _shakeAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: -10.0), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -10.0, end: 10.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 10.0, end: -8.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -8.0, end: 8.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 8.0, end: 0.0), weight: 1),
+    ]).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeInOut));
+
     // TC-5.01: Auto-focus work email field on screen load if in Corporate mode
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _identityMode == CommuterIdentityMode.corporateEmployee && _corporateSubMode == CorporateAuthSubMode.workEmail && !_isOtpSent) {
@@ -80,6 +104,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
 
   @override
   void dispose() {
+    _shakeController.dispose();
     _resendTimer?.cancel();
     _lockoutTimer?.cancel();
     _emailController.dispose();
@@ -102,7 +127,11 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
   }
 
   void _onInviteCodeChanged() {
-    setState(() {});
+    setState(() {
+      if (_inviteCodeErrorMessage != null) {
+        _inviteCodeErrorMessage = null;
+      }
+    });
   }
 
   void _switchIdentityMode(CommuterIdentityMode mode) {
@@ -132,6 +161,8 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
       _isOtpSent = false;
       _resendTimer?.cancel();
       _clearOtpFields();
+      _inviteCodeErrorMessage = null;
+      _isInviteCodeVerified = false;
       if (subMode == CorporateAuthSubMode.workEmail) {
         _inviteCodeController.clear();
         _emailFocusNode.requestFocus();
@@ -367,6 +398,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
     if (enteredOtp == '000000') {
       _failedOtpAttempts++;
       HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
 
       if (_failedOtpAttempts >= 3) {
         _startLockoutCountdown();
@@ -432,6 +464,68 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
       _otpFocusNodes[index - 1].requestFocus();
     }
     setState(() {});
+  }
+
+  /// TC-5.30, TC-5.31, TC-5.32: Handle HR Invite Code Verification
+  Future<void> _handleVerifyInviteCode() async {
+    final code = _inviteCodeController.text.trim().toUpperCase();
+    if (!CorporateVerifyValidator.isValidInviteCode(code) || _isVerifyingInviteCode) return;
+
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isVerifyingInviteCode = true;
+      _inviteCodeErrorMessage = null;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+
+    // Simulation of invalid/expired invite codes (e.g. FAIL99, EXPD00)
+    if (code == 'FAIL99' || code == 'EXPD00' || code == '000000') {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _isVerifyingInviteCode = false;
+        _inviteCodeErrorMessage = 'Invalid or expired HR invite code.';
+      });
+      return;
+    }
+
+    // Success: Resolve company name
+    final company = CorporateVerifyValidator.resolveInviteCodeCompany(code);
+    setState(() {
+      _isVerifyingInviteCode = false;
+      _isInviteCodeVerified = true;
+      _verifiedInviteCompany = company;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.vpn_key_rounded, color: Color(0xFF00E5FF), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'HR Passkey Verified for $company!',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF0E1630),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.4)),
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _handlePublicUserContinue() {
@@ -530,10 +624,19 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
 
                           const SizedBox(height: 20),
 
-                          // Main Content Area based on Mode
-                          _identityMode == CommuterIdentityMode.corporateEmployee
-                              ? _buildCorporateEmployeeSection()
-                              : _buildPublicUserSection(),
+                          // Main Content Area based on Mode with Animated Shake Physics
+                          AnimatedBuilder(
+                            animation: _shakeAnimation,
+                            builder: (context, child) {
+                              return Transform.translate(
+                                offset: Offset(_shakeAnimation.value, 0),
+                                child: child,
+                              );
+                            },
+                            child: _identityMode == CommuterIdentityMode.corporateEmployee
+                                ? _buildCorporateEmployeeSection()
+                                : _buildPublicUserSection(),
+                          ),
 
                           const SizedBox(height: 20),
                         ],
@@ -623,7 +726,9 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
                   Flexible(
                     child: Text(
                       _identityMode == CommuterIdentityMode.corporateEmployee
-                          ? 'SYS.AUTH // HR_GATE'
+                          ? (_corporateSubMode == CorporateAuthSubMode.inviteCode
+                              ? 'SYS.AUTH // HR_PASSKEY'
+                              : 'SYS.AUTH // HR_GATE')
                           : 'SYS.AUTH // PUBLIC_GATE',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -655,7 +760,9 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
             size: 80,
             accentColor: themeColor,
             centerIcon: _identityMode == CommuterIdentityMode.corporateEmployee
-                ? Icons.apartment_rounded
+                ? (_corporateSubMode == CorporateAuthSubMode.inviteCode
+                    ? Icons.vpn_key_rounded
+                    : Icons.apartment_rounded)
                 : Icons.person_rounded,
           ),
         ),
@@ -675,13 +782,17 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                _identityMode == CommuterIdentityMode.corporateEmployee ? '🏢' : '🌟',
+                _identityMode == CommuterIdentityMode.corporateEmployee
+                    ? (_corporateSubMode == CorporateAuthSubMode.inviteCode ? '🔑' : '🏢')
+                    : '🌟',
                 style: const TextStyle(fontSize: 12),
               ),
               const SizedBox(width: 6),
               Text(
                 _identityMode == CommuterIdentityMode.corporateEmployee
-                    ? 'Corporate Identity Gate'
+                    ? (_corporateSubMode == CorporateAuthSubMode.inviteCode
+                        ? 'Corporate Passkey Gate'
+                        : 'Corporate Identity Gate')
                     : 'Public Commuter Portal',
                 style: TextStyle(
                   color: themeColor,
@@ -698,7 +809,9 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
         // Title
         Text(
           _identityMode == CommuterIdentityMode.corporateEmployee
-              ? 'Verify Corporate Access'
+              ? (_corporateSubMode == CorporateAuthSubMode.inviteCode
+                  ? 'Enter HR Passkey'
+                  : 'Verify Corporate Access')
               : 'Public Commuter Network',
           style: const TextStyle(
             fontSize: 22,
@@ -712,7 +825,9 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
         // Subtitle
         Text(
           _identityMode == CommuterIdentityMode.corporateEmployee
-              ? 'Unlock employee carpools, company Karma subsidies, and verified colleague matching.'
+              ? (_corporateSubMode == CorporateAuthSubMode.inviteCode
+                  ? 'Bypass firewall or email delays using your 6-character HR issued corporate access passkey.'
+                  : 'Unlock employee carpools, company Karma subsidies, and verified colleague matching.')
               : 'Access open daily carpools, eco-friendly shared commutes, and verified peer matching.',
           textAlign: TextAlign.center,
           style: TextStyle(
@@ -822,9 +937,15 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
     );
   }
 
-  /// 🏢 Section for Corporate Employee Mode (Phase 4 & Phase 5)
+  /// 🏢 Section for Corporate Employee Mode (Phase 4, Phase 5 & Phase 6)
   Widget _buildCorporateEmployeeSection() {
-    return _isOtpSent ? _buildCorporateOtpSection() : _buildCorporateEmailSection();
+    if (_isOtpSent) {
+      return _buildCorporateOtpSection();
+    }
+    if (_corporateSubMode == CorporateAuthSubMode.inviteCode) {
+      return _buildCorporateInviteCodeSection();
+    }
+    return _buildCorporateEmailSection();
   }
 
   /// Phase 4: Corporate Work Email Input Section
@@ -858,11 +979,11 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Sub-Header with Icon
-          Row(
+          const Row(
             children: [
-              const Icon(Icons.business_rounded, color: Color(0xFF00E5FF), size: 18),
-              const SizedBox(width: 8),
-              const Expanded(
+              Icon(Icons.business_rounded, color: Color(0xFF00E5FF), size: 18),
+              SizedBox(width: 8),
+              Expanded(
                 child: Text(
                   'Corporate Email Verification',
                   style: TextStyle(
@@ -872,20 +993,6 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
                   ),
                 ),
               ),
-              if (_corporateSubMode == CorporateAuthSubMode.inviteCode)
-                GestureDetector(
-                  key: const Key('switch_to_email_button'),
-                  onTap: () => _switchCorporateSubMode(CorporateAuthSubMode.workEmail),
-                  child: const Text(
-                    'Use Email',
-                    style: TextStyle(
-                      color: Color(0xFF00E5FF),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -1372,6 +1479,301 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
                   if (!_isVerifyingOtp && isOtpComplete && !_isLockedOut) ...[
                     const SizedBox(width: 6),
                     const Icon(Icons.arrow_forward_rounded, color: Colors.black87, size: 15),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Phase 6: HR Invite Code & Corporate Passkey Bypass Section (TC-5.29 to TC-5.32)
+  Widget _buildCorporateInviteCodeSection() {
+    final code = _inviteCodeController.text.trim().toUpperCase();
+    final isCodeValid = CorporateVerifyValidator.isValidInviteCode(code);
+    final companyName = isCodeValid ? CorporateVerifyValidator.resolveInviteCodeCompany(code) : null;
+
+    return Container(
+      key: const ValueKey('section_corporate_invite_code'),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isCodeValid
+              ? const Color(0xFF00E5FF).withValues(alpha: 0.4)
+              : (_inviteCodeErrorMessage != null
+                  ? const Color(0xFFFF5252).withValues(alpha: 0.4)
+                  : Colors.white.withValues(alpha: 0.15)),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (isCodeValid
+                    ? const Color(0xFF00E5FF)
+                    : (_inviteCodeErrorMessage != null ? const Color(0xFFFF5252) : const Color(0xFF00E5FF)))
+                .withValues(alpha: 0.04),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Sub-Header with Link to Email Mode (TC-5.29)
+          Row(
+            children: [
+              const Icon(Icons.vpn_key_rounded, color: Color(0xFF00E5FF), size: 18),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'HR Corporate Passkey',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                key: const Key('switch_to_email_button'),
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _switchCorporateSubMode(CorporateAuthSubMode.workEmail),
+                child: const Text(
+                  'Use Work Email',
+                  style: TextStyle(
+                    color: Color(0xFF00E5FF),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // 6-Character Alphanumeric Invite Code Input Box (TC-5.29, TC-5.30)
+          TextField(
+            key: const Key('invite_code_input'),
+            controller: _inviteCodeController,
+            focusNode: _inviteFocusNode,
+            textCapitalization: TextCapitalization.characters,
+            maxLength: 6,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 3.5,
+            ),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+            ],
+            decoration: InputDecoration(
+              counterText: '',
+              hintText: 'e.g. INFY26',
+              hintStyle: TextStyle(
+                color: Colors.white.withValues(alpha: 0.3),
+                fontSize: 14,
+                letterSpacing: 2,
+              ),
+              prefixIcon: Icon(
+                Icons.key_rounded,
+                color: isCodeValid ? const Color(0xFF00E5FF) : const Color(0xFF00E5FF).withValues(alpha: 0.7),
+                size: 18,
+              ),
+              suffixIcon: _inviteCodeController.text.isNotEmpty
+                  ? (isCodeValid
+                      ? const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 18)
+                      : (_inviteCodeErrorMessage != null
+                          ? const Icon(Icons.error_outline_rounded, color: Color(0xFFFF5252), size: 18)
+                          : null))
+                  : null,
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.04),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: isCodeValid
+                      ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
+                      : (_inviteCodeErrorMessage != null
+                          ? const Color(0xFFFF5252).withValues(alpha: 0.5)
+                          : Colors.white.withValues(alpha: 0.15)),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: _inviteCodeErrorMessage != null ? const Color(0xFFFF5252) : const Color(0xFF00E5FF),
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+
+          // TC-5.31: Inline Error Banner on Invalid/Expired Code
+          if (_inviteCodeErrorMessage != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const Key('invite_error_banner'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF5252).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFFF5252), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _inviteCodeErrorMessage!,
+                      style: const TextStyle(
+                        color: Color(0xFFFF5252),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // TC-5.32: Company Recognition Chip on Valid Code Format
+          if (isCodeValid && companyName != null && !_isInviteCodeVerified) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const Key('invite_company_recognition_chip'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.verified_rounded, color: Color(0xFF00E5FF), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Recognized Passkey: $companyName',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // TC-5.32: Verified Badge on Success Verification
+          if (_isInviteCodeVerified) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const Key('invite_verified_badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Verified for $_verifiedInviteCompany!',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 18),
+
+          // Primary Verify Invite Code Button (TC-5.30, TC-5.32)
+          GestureDetector(
+            key: const Key('verify_invite_button'),
+            behavior: HitTestBehavior.opaque,
+            onTap: isCodeValid && !_isVerifyingInviteCode ? _handleVerifyInviteCode : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                gradient: isCodeValid
+                    ? const LinearGradient(
+                        colors: [
+                          Color(0xFF00E5FF),
+                          Color(0xFF0088FF),
+                        ],
+                      )
+                    : null,
+                color: isCodeValid ? null : Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: isCodeValid
+                    ? [
+                        BoxShadow(
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : [],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isVerifyingInviteCode) ...[
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(
+                    child: Text(
+                      _isInviteCodeVerified
+                          ? 'Passkey Verified ✓ Proceed to KYC'
+                          : (_isVerifyingInviteCode ? 'Verifying Passkey...' : 'Verify Passkey & Unlock Corporate Pool'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isCodeValid ? Colors.black87 : Colors.white.withValues(alpha: 0.3),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  if (!_isVerifyingInviteCode && isCodeValid) ...[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.arrow_forward_rounded, color: Colors.black87, size: 16),
                   ],
                 ],
               ),

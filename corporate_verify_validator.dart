@@ -176,6 +176,18 @@ class CorporateVerifyValidator {
     return regex.hasMatch(code);
   }
 
+  /// Resolves company name from invite code prefix
+  static String resolveInviteCodeCompany(String rawCode) {
+    final code = rawCode.trim().toUpperCase();
+    if (code.startsWith('INFY')) return 'Infosys Technologies';
+    if (code.startsWith('TCS')) return 'Tata Consultancy Services';
+    if (code.startsWith('WIPR')) return 'Wipro Limited';
+    if (code.startsWith('GOOG')) return 'Google';
+    if (code.startsWith('MSFT')) return 'Microsoft';
+    if (code.startsWith('AMZN')) return 'Amazon';
+    return 'Enterprise Partner';
+  }
+
   /// Max allowable failed attempts before lockout
   static const int maxFailedAttempts = 3;
 
