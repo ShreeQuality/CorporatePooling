@@ -323,6 +323,7 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
   void _completeKycVerification() {
     if (_verifiedProfile == null) return;
     HapticFeedback.mediumImpact();
+    _idController.clear();
     setState(() {
       _currentStep = AadhaarVerificationStep.verifiedSuccess;
     });
@@ -586,53 +587,58 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
           ),
 
           // Live Telemetry HUD Status Badge
-          Container(
-            key: const Key('aadhaar_hud_telemetry_badge'),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: accentColor.withValues(alpha: 0.3),
+          Flexible(
+            child: Container(
+              key: const Key('aadhaar_hud_telemetry_badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: accentColor.withValues(alpha: 0.3),
+                ),
               ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: accentColor,
-                    boxShadow: [
-                      BoxShadow(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: accentColor,
+                      boxShadow: [
+                        BoxShadow(
+                          color: accentColor,
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      _currentStep == AadhaarVerificationStep.verifiedSuccess
+                          ? 'SYS.AUTH // KYC_VERIFIED'
+                          : (_currentStep == AadhaarVerificationStep.selfieLiveness
+                              ? 'SYS.AUTH // FACE_LIVENESS'
+                              : (_currentStep == AadhaarVerificationStep.digilockerModal
+                                  ? 'SYS.AUTH // DIGILOCKER_OAUTH'
+                                  : (_currentStep == AadhaarVerificationStep.qrScannerModal
+                                      ? 'SYS.AUTH // SECURE_QR'
+                                      : 'SYS.AUTH // GOVT_KYC'))),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
                         color: accentColor,
-                        blurRadius: 6,
-                        spreadRadius: 1,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _currentStep == AadhaarVerificationStep.verifiedSuccess
-                      ? 'SYS.AUTH // KYC_VERIFIED'
-                      : (_currentStep == AadhaarVerificationStep.selfieLiveness
-                          ? 'SYS.AUTH // FACE_LIVENESS'
-                          : (_currentStep == AadhaarVerificationStep.digilockerModal
-                              ? 'SYS.AUTH // DIGILOCKER_OAUTH'
-                              : (_currentStep == AadhaarVerificationStep.qrScannerModal
-                                  ? 'SYS.AUTH // SECURE_QR'
-                                  : 'SYS.AUTH // GOVT_KYC'))),
-                  style: TextStyle(
-                    color: accentColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -1933,13 +1939,16 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                           color: isChecksumValid ? const Color(0xFF050814) : const Color(0xFF64748B),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'Verify via DigiLocker',
-                          style: TextStyle(
-                            color: isChecksumValid ? const Color(0xFF050814) : const Color(0xFF64748B),
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.4,
+                        Flexible(
+                          child: Text(
+                            'Verify via DigiLocker',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isChecksumValid ? const Color(0xFF050814) : const Color(0xFF64748B),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.4,
+                            ),
                           ),
                         ),
                       ],

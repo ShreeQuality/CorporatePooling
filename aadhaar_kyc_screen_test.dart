@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:corporate_pooling_app/screens/auth/aadhaar_kyc_screen.dart';
+import 'package:corporate_pooling_app/screens/auth/corporate_verify_screen.dart';
 import 'package:corporate_pooling_app/core/services/aadhaar_kyc_validator.dart';
 
 void main() {
-  Widget createTestWidget({void Function(AadhaarProfilePayload)? onKycSuccess}) {
+  Widget createTestWidget({
+    void Function(AadhaarProfilePayload)? onKycSuccess,
+    double textScaleFactor = 1.0,
+  }) {
     return MaterialApp(
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScaleFactor),
+          ),
+          child: child!,
+        );
+      },
       home: AadhaarKycScreen(onKycSuccess: onKycSuccess),
     );
   }
@@ -20,7 +32,7 @@ void main() {
   final checkDigit16 = AadhaarKycValidator.generateVerhoeffCheckDigit(testPrefix15);
   final validVid16 = '$testPrefix15$checkDigit16';
 
-  group('AadhaarKycScreen - Phase 2 to 6 Comprehensive Tests', () {
+  group('AadhaarKycScreen - Phase 2 to 7 Comprehensive Specification Tests', () {
     testWidgets('TC-6.01-UI: Screen loads with Stardust rainfall, Top Navigation Bar and Back Button', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
@@ -386,6 +398,51 @@ void main() {
       expect(callbackProfile, isNotNull);
       expect(callbackProfile!.fullName, 'Rahul Kumar');
       expect(callbackProfile!.isKycVerified, isTrue);
+    });
+
+    testWidgets('TC-6.31 to TC-6.33: Multi-resolution ergonomics (Small screen, Large screen, and 1.5x accessibility text scale)', (tester) async {
+      // Test on small viewport (320x568 - iPhone SE 1st gen)
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createTestWidget(textScaleFactor: 1.5));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('aadhaar_input_card')), findsOneWidget);
+      expect(find.byKey(const Key('aadhaar_hud_telemetry_badge')), findsOneWidget);
+    });
+
+    testWidgets('TC-6.34: Screen 5 to Screen 6 Transition Navigation Bridge', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Map<String, dynamic>? receivedPayload;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CorporateVerifyScreen(
+            onPublicModeSelected: (data) {
+              receivedPayload = data;
+            },
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Public User Section is present by default
+      expect(find.byKey(const Key('section_public_user')), findsOneWidget);
+
+      // Tap Continue to Govt KYC
+      final continueBtn = find.byKey(const Key('continue_public_kyc_button'));
+      await tester.ensureVisible(continueBtn);
+      await tester.tap(continueBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(receivedPayload, isNotNull);
+      expect(receivedPayload!['user_type'], 'public_user');
     });
   });
 }
