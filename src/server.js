@@ -12,11 +12,12 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
 // Route imports
-const authRoutes     = require('./routes/auth');
-const rideRoutes     = require('./routes/rides');
-const requestRoutes  = require('./routes/requests');
-const walletRoutes   = require('./routes/wallet');
-const adminRoutes    = require('./routes/admin');
+const authRoutes          = require('./routes/auth');
+const rideRoutes          = require('./routes/rides');
+const requestRoutes       = require('./routes/requests');
+const walletRoutes        = require('./routes/wallet');
+const adminRoutes         = require('./routes/admin');
+const notificationRoutes  = require('./routes/notifications');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,11 +57,12 @@ app.use(globalLimiter);
 app.use(`${BASE}/auth`, authLimiter);
 
 // ─── Routes ───────────────────────────────────────────────────
-app.use(`${BASE}/auth`,     authRoutes);
-app.use(`${BASE}/rides`,    rideRoutes);
-app.use(`${BASE}`,          requestRoutes);   // /requests/my, /rides/:id/request, etc.
-app.use(`${BASE}/wallet`,   walletRoutes);
-app.use(`${BASE}/admin`,    adminRoutes);
+app.use(`${BASE}/auth`,           authRoutes);
+app.use(`${BASE}/rides`,          rideRoutes);
+app.use(`${BASE}`,                requestRoutes);   // /requests/my, /rides/:id/request, etc.
+app.use(`${BASE}/wallet`,         walletRoutes);
+app.use(`${BASE}/admin`,          adminRoutes);
+app.use(`${BASE}/notifications`,  notificationRoutes);
 
 // ─── Health Check ─────────────────────────────────────────────
 app.get('/health', (req, res) => {

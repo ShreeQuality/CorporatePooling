@@ -1,385 +1,406 @@
 // ============================================================
-// Matching Service — Corporate Pooling App
-// Ported from KarmaRide matchingAlgorithm.js + rideMatchHelpers.js
-// Phase-based: generous when ride POSTED, tight when STARTED
+// Matching Service — Corporate Pooling Backend
+// 2-Tier Hybrid Funnel Architecture: PostGIS Spatial Pre-Filter + In-Memory Polyline Engine
+// Source of Truth: SRS §5.1.1 (Barrier Landmarks), §6.1, §6.3, §6.5 (Trust Scoring), §6.6 (Exclusion Gates)
 // ============================================================
 
 'use strict';
 
 const { supabaseAdmin } = require('../config/supabase');
-const { isNearRouteSegment, distanceMeters } = require('../utils/haversine');
+const { isNearRouteSegment, distanceMeters, pointToSegmentDistanceMeters } = require('../utils/haversine');
+const walletService = require('./walletService');
 
-// ─── Configurable Radius Values ─────────────────────────────
-const CONFIG = {
-  pickup_radius_posted: 500,   // meters — generous before ride starts
-  pickup_radius_started: 150,  // meters — tight, driver is moving
-  drop_radius_posted: 500,     // meters
-  drop_radius_started: 300,    // meters — passing nearby is enough
-  max_matches: 20,             // cap on results shown to rider
+// ─── Phase-Based Configurable Radius Values (SRS §6.3) ─────────
+const MATCH_CONFIG = {
+  pickup_radius_posted: 500,     // meters — generous standard matching
+  pickup_radius_extended: 1500,  // meters — extended campus matching if same building_id
+  pickup_radius_started: 150,    // meters — tight, driver is moving on-route
+  drop_radius_posted: 500,       // meters
+  drop_radius_started: 300,      // meters
+  max_matches: 20,               // max candidate results returned
+  min_results_extended_threshold: 5, // if < 5 direct matches, trigger extended campus search
+  average_walk_speed_m_per_min: 80, // ~4.8 km/h walking speed
+  barrier_landmark_search_radius_m: 500, // meters for safe transit landmark suggestions
 };
 
-// ─── Day/Time Helpers (from rideMatchHelpers.js) ────────────
-
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-
-function dayKeyOfDate(d) {
-  const date = d instanceof Date ? d : new Date(d);
-  return DAY_KEYS[date.getDay()];
-}
-
-function isSameCalendarDay(d1, d2) {
-  const a = d1 instanceof Date ? d1 : new Date(d1);
-  const b = d2 instanceof Date ? d2 : new Date(d2);
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-/**
- * Check day compatibility between rider's ride_want and driver's ride.
- * rideWant: { time_type, recurring_days, depart_timestamp }
- * driverRide: { time_type, recurring_days, depart_timestamp, depart_time }
- */
-function dayCompatible(rideWant, driverRide) {
-  const wantDays = rideWant.recurring_days || [];
-
-  if (rideWant.time_type === 'recurring') {
-    if (driverRide.time_type === 'recurring') {
-      const driverDays = driverRide.recurring_days || [];
-      return driverDays.some((d) => wantDays.includes(d));
-    }
-    if (driverRide.time_type === 'scheduled') {
-      if (!driverRide.depart_timestamp) return false;
-      return wantDays.includes(dayKeyOfDate(driverRide.depart_timestamp));
-    }
-    return wantDays.includes(dayKeyOfDate(new Date()));
-  }
-
-  if (rideWant.time_type === 'scheduled') {
-    if (!rideWant.depart_timestamp) return false;
-    const wantDate = new Date(rideWant.depart_timestamp);
-
-    if (driverRide.time_type === 'scheduled') {
-      if (!driverRide.depart_timestamp) return false;
-      return isSameCalendarDay(wantDate, driverRide.depart_timestamp);
-    }
-    if (driverRide.time_type === 'recurring') {
-      return (driverRide.recurring_days || []).includes(dayKeyOfDate(wantDate));
-    }
-    return isSameCalendarDay(wantDate, new Date());
-  }
-
-  // time_type === 'now' → match anything available today
-  return true;
-}
-
-/**
- * Check departure time compatibility.
- * Driver must depart within [riderTime, riderTime + 2×flexibility].
- */
-function timesCompatible(rideWant, driverRide) {
-  if (!rideWant.depart_timestamp) return true;
-  const wantDate = new Date(rideWant.depart_timestamp);
-  const wantMins = wantDate.getHours() * 60 + wantDate.getMinutes();
-
-  // Parse driver's "8:00 AM" time string
-  const parseTimeString = (s) => {
-    if (!s) return null;
-    const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-    if (!m) return null;
-    let hr = parseInt(m[1]);
-    const min = parseInt(m[2]);
-    const ampm = m[3].toUpperCase();
-    if (ampm === 'PM' && hr !== 12) hr += 12;
-    if (ampm === 'AM' && hr === 12) hr = 0;
-    return hr * 60 + min;
-  };
-
-  const driverMins = parseTimeString(driverRide.depart_time);
-  if (driverMins === null) return true;
-
-  const flex = rideWant.flexibility || 0;
-  return driverMins >= wantMins && driverMins <= wantMins + flex * 2;
-}
-
-// ─── Main Matching Function ──────────────────────────────────
-
-/**
- * Match a rider's search against available driver rides.
- *
- * @param {Array} rides - array of ride objects from DB
- * @param {number} riderPickupLat
- * @param {number} riderPickupLng
- * @param {number} riderDropLat
- * @param {number} riderDropLng
- * @param {object} rideWant - rider's time/day preferences { time_type, depart_timestamp, recurring_days, flexibility }
- * @param {object} options - { excludeLiveStatuses: bool }
- * @returns {Array} matched rides sorted by score
- */
-function matchRides(
-  rides,
-  riderPickupLat,
-  riderPickupLng,
-  riderDropLat,
-  riderDropLng,
-  rideWant = {},
-  options = {}
-) {
-  if (!rides || rides.length === 0) return [];
-  if (riderPickupLat == null || riderDropLat == null) return [];
-
-  const { excludeLiveStatuses = true } = options;
-
-  const matches = [];
-
-  for (const ride of rides) {
-    const rideStatus = ride.ride_status || 'posted';
-
-    // Skip completed / cancelled — dead rides
-    if (rideStatus === 'completed' || rideStatus === 'cancelled') continue;
-
-    const isLive = rideStatus === 'in_progress' || rideStatus === 'waiting_otp';
-    if (isLive && (ride.time_type !== 'recurring' || excludeLiveStatuses)) continue;
-
-    // Skip rides with no seats
-    if ((ride.available_seats || 0) <= 0) continue;
-
-    const routePoints = ride.route_points || [];
-    if (routePoints.length === 0) {
-      console.warn(`[matchRides] Ride ${ride.id} has no route_points — skipping`);
-      continue;
-    }
-
-    // Day/time filter (only apply if rideWant has time info)
-    if (rideWant.time_type && rideWant.time_type !== 'now') {
-      if (!dayCompatible(rideWant, ride)) continue;
-      if (!timesCompatible(rideWant, ride)) continue;
-    }
-
-    // ── PHASE 1: Posted (generous 500m radius) ──────────────
-    if (rideStatus === 'posted' || (isLive && !excludeLiveStatuses)) {
-      const pickupCheck = isNearRouteSegment(
-        routePoints, 0, routePoints.length - 1,
-        riderPickupLat, riderPickupLng, CONFIG.pickup_radius_posted
-      );
-      if (!pickupCheck.match) continue;
-
-      const dropCheck = isNearRouteSegment(
-        routePoints, pickupCheck.index, routePoints.length - 1,
-        riderDropLat, riderDropLng, CONFIG.drop_radius_posted
-      );
-      if (!dropCheck.match) continue;
-
-      const matchScore = Math.max(0, Math.min(100,
-        100 - Math.round((pickupCheck.distance + dropCheck.distance) / 20)
-      ));
-
-      matches.push({
-        ...ride,
-        _pickup_distance_m: Math.round(pickupCheck.distance),
-        _drop_distance_m: Math.round(dropCheck.distance),
-        _pickup_route_index: pickupCheck.index,
-        _drop_route_index: dropCheck.index,
-        _match_score: matchScore,
-        _phase: 'posted',
-      });
-    }
-
-    // ── PHASE 2: Started (tight 150m/300m, remaining route only) ──
-    if (rideStatus === 'started') {
-      const currentLat = ride.current_lat || ride.from_lat;
-      const currentLng = ride.current_lng || ride.from_lng;
-      const currentRouteIndex = ride.current_route_index != null ? ride.current_route_index : 0;
-
-      const pickupCheck = isNearRouteSegment(
-        routePoints, currentRouteIndex, routePoints.length - 1,
-        riderPickupLat, riderPickupLng, CONFIG.pickup_radius_started
-      );
-      if (!pickupCheck.match) continue;
-
-      // Must be AHEAD of driver
-      if (pickupCheck.index < currentRouteIndex) continue;
-
-      const dropCheck = isNearRouteSegment(
-        routePoints, pickupCheck.index, routePoints.length - 1,
-        riderDropLat, riderDropLng, CONFIG.drop_radius_started
-      );
-      if (!dropCheck.match) continue;
-
-      const matchScore = Math.max(0, Math.min(100,
-        100 - Math.round((pickupCheck.distance + dropCheck.distance) / 10)
-      ));
-
-      matches.push({
-        ...ride,
-        _pickup_distance_m: Math.round(pickupCheck.distance),
-        _drop_distance_m: Math.round(dropCheck.distance),
-        _pickup_route_index: pickupCheck.index,
-        _drop_route_index: dropCheck.index,
-        _match_score: matchScore,
-        _phase: 'started',
-        _driver_distance_m: Math.round(
-          distanceMeters(currentLat, currentLng, riderPickupLat, riderPickupLng)
-        ),
-      });
-    }
-  }
-
-  // Sort best score first, cap at max_matches
-  matches.sort((a, b) => b._match_score - a._match_score);
-  return matches.slice(0, CONFIG.max_matches);
-}
-
 // ============================================================
-// TIER 1: PostGIS Spatial Pre-Filter (Step 4)
-// Calls PostgreSQL RPC: find_candidate_rides_spatial (020_spatial_matching_rpc.sql)
+// 1. TIER 1: POSTGIS SPATIAL CANDIDATE FETCH
 // ============================================================
 
 /**
- * Fetches candidate rides within spatial bounding circle using PostGIS GiST index.
- * Prunes 95%–99% of non-relevant rides at the database layer in < 5ms.
- * 
- * @param {string|null} riderId - UUID of the searching rider (to exclude self-rides)
- * @param {number} pickupLat - Rider pickup latitude
- * @param {number} pickupLng - Rider pickup longitude
- * @param {number} dropLat - Rider drop latitude
- * @param {number} dropLng - Rider drop longitude
- * @param {object} options - { seatsRequested, maxRadiusMeters, timeType, targetDate }
- * @returns {Promise<Array>} Normalized candidate rides for Tier 2 polyline & scoring
+ * Executes PostGIS ST_DWithin query via RPC to prune 99% of non-relevant rides in < 5ms.
  */
 async function fetchSpatialCandidateRides(riderId, pickupLat, pickupLng, dropLat, dropLng, options = {}) {
   const {
     seatsRequested = 1,
-    maxRadiusMeters = 1500,
+    maxRadiusMeters = MATCH_CONFIG.pickup_radius_extended,
     timeType = null,
     targetDate = null,
   } = options;
 
-  try {
-    const { data, error } = await supabaseAdmin.rpc('find_candidate_rides_spatial', {
-      p_rider_id: riderId || null,
-      p_pickup_lat: parseFloat(pickupLat),
-      p_pickup_lng: parseFloat(pickupLng),
-      p_drop_lat: parseFloat(dropLat),
-      p_drop_lng: parseFloat(dropLng),
-      p_seats_requested: parseInt(seatsRequested, 10) || 1,
-      p_max_radius_m: parseInt(maxRadiusMeters, 10) || 1500,
-      p_time_type: timeType || null,
-      p_target_date: targetDate || null,
-    });
+  const { data, error } = await supabaseAdmin.rpc('find_candidate_rides_spatial', {
+    p_rider_id: riderId,
+    p_pickup_lat: parseFloat(pickupLat),
+    p_pickup_lng: parseFloat(pickupLng),
+    p_drop_lat: parseFloat(dropLat),
+    p_drop_lng: parseFloat(dropLng),
+    p_seats_requested: parseInt(seatsRequested, 10),
+    p_max_radius_m: parseInt(maxRadiusMeters, 10),
+    p_time_type: timeType,
+    p_target_date: targetDate,
+  });
 
-    if (error) {
-      console.warn('[MatchingService] Tier 1 PostGIS RPC error, falling back to basic query:', error.message);
-      return await _fallbackCandidateQuery(riderId);
-    }
-
-    if (!data || !Array.isArray(data)) {
-      return [];
-    }
-
-    // Normalize returned rows for Tier 2 polyline matcher + Flutter consumer compatibility
-    return data.map((row) => ({
-      id: row.ride_id,
-      ride_id: row.ride_id,
-      driver_id: row.driver_id,
-      from_address: row.from_address,
-      to_address: row.to_address,
-      from_lat: parseFloat(pickupLat),
-      from_lng: parseFloat(pickupLng),
-      to_lat: parseFloat(dropLat),
-      to_lng: parseFloat(dropLng),
-      route_points: Array.isArray(row.route_points) ? row.route_points : [],
-      total_seats: row.seats_offered,
-      seats_offered: row.seats_offered,
-      available_seats: row.seats_available,
-      seats_available: row.seats_available,
-      coin_per_seat: Number(row.fare_coins || 0),
-      fare_coins: Number(row.fare_coins || 0),
-      time_type: row.time_type,
-      depart_date: row.depart_date,
-      depart_time: row.depart_time,
-      approx_reach_time: row.approx_reach_time,
-      recurring_days: row.recurring_days || [],
-      skip_dates: row.skip_dates || [],
-      distance_km: Number(row.distance_km || 0),
-      estimated_duration_mins: row.estimated_duration_mins || 0,
-      ride_status: row.ride_status,
-      women_only_flag: Boolean(row.women_only_flag),
-      is_open_to_public: row.is_open_to_public !== false,
-      current_lat: row.current_lat != null ? parseFloat(row.current_lat) : null,
-      current_lng: row.current_lng != null ? parseFloat(row.current_lng) : null,
-      current_route_index: row.current_route_index || 0,
-      _spatial_pickup_dist_m: Math.round(row.pickup_dist_meters || 0),
-      _spatial_drop_dist_m: Math.round(row.drop_dist_meters || 0),
-      driver: {
-        id: row.driver_id,
-        full_name: row.driver_name,
-        phone_number: row.driver_phone,
-        gender: row.driver_gender,
-        role: row.driver_role,
-        trust_score: row.driver_trust_score,
-        company_id: row.driver_company_id,
-        building_id: row.driver_building_id,
-        company_name: row.driver_company_name,
-        photo_url: row.driver_photo_url,
-      },
-      vehicle: {
-        id: row.vehicle_id,
-        type: row.vehicle_type,
-        model: row.vehicle_model,
-        registration_number: row.vehicle_number,
-        color: row.vehicle_color,
-        has_spare_helmet: row.has_spare_helmet,
-      },
-      users: {
-        id: row.driver_id,
-        full_name: row.driver_name,
-        photo_url: row.driver_photo_url,
-        trust_score: row.driver_trust_score,
-        gender: row.driver_gender,
-      },
-      vehicles: {
-        type: row.vehicle_type,
-        model: row.vehicle_model,
-        registration_number: row.vehicle_number,
-        color: row.vehicle_color,
-      },
-    }));
-  } catch (err) {
-    console.error('[MatchingService] Error in fetchSpatialCandidateRides:', err.message);
-    return await _fallbackCandidateQuery(riderId);
-  }
-}
-
-/**
- * Fallback query in case RPC has not yet been compiled on Supabase instance.
- */
-async function _fallbackCandidateQuery(riderId) {
-  let query = supabaseAdmin
-    .from('rides')
-    .select(`
-      *,
-      users!driver_id(id, full_name, photo_url, trust_score, gender, role, company_id, building_id),
-      vehicles(id, type, model, registration_number, color, has_spare_helmet)
-    `)
-    .in('ride_status', ['posted', 'started'])
-    .gt('seats_available', 0)
-    .limit(50);
-
-  if (riderId) {
-    query = query.neq('driver_id', riderId);
+  if (error) {
+    console.error('[MatchingService] Tier 1 PostGIS query error:', error.message);
+    throw new Error(`Spatial candidate search failed: ${error.message}`);
   }
 
-  const { data } = await query;
   return data || [];
 }
 
+/**
+ * Fetches nearest physical barrier transit landmark (e.g. railway foot overbridge, highway bus bay)
+ * Source of Truth: SRS §5.1.1 (Physical Barrier Handling) & Migration 018.
+ */
+async function fetchNearbyBarrierLandmark(pickupLat, pickupLng, maxRadiusMeters = 500) {
+  try {
+    const { data, error } = await supabaseAdmin.rpc('get_suggested_barrier_pickup', {
+      p_rider_lat: parseFloat(pickupLat),
+      p_rider_lng: parseFloat(pickupLng),
+      p_max_radius_m: parseInt(maxRadiusMeters, 10),
+    });
+
+    if (error || !data || data.length === 0) return null;
+    const l = data[0];
+    return {
+      landmark_id: l.landmark_id,
+      name: l.landmark_name,
+      barrier_type: l.barrier_type,
+      suggested_pickup_note: l.suggested_pickup_note,
+      distance_meters: Math.round(l.distance_meters || 0),
+      pickup_lat: l.pickup_lat,
+      pickup_lng: l.pickup_lng,
+    };
+  } catch (err) {
+    console.warn('[MatchingService] Barrier landmark fetch failed (non-fatal):', err.message);
+    return null;
+  }
+}
+
+// ============================================================
+// 2. HARD EXCLUSION GATES (SRS §6.6 — 5 Safety & Feasibility Gates)
+// ============================================================
+
+/**
+ * Evaluates binary safety and operational constraints.
+ * If any gate fails, returns { pass: false, reason: string }.
+ */
+function evaluateExclusionGates(ride, riderProfile = {}, seatsRequested = 1) {
+  // Gate 1: Driver Self-Match Guard
+  if (ride.driver_id === riderProfile.id) {
+    return { pass: false, reason: 'SELF_MATCH_GUARD' };
+  }
+
+  // Gate 2: Women-Only Safety Guard (SRS §6.6 Gate 1)
+  const isWomenOnly = Boolean(ride.women_only || ride.women_only_flag);
+  if (isWomenOnly && riderProfile.gender !== 'female') {
+    return { pass: false, reason: 'WOMEN_ONLY_GUARD' };
+  }
+
+  // Gate 3: 2-Wheeler Helmet & Seat Guard (SRS §6.6 Gate 3)
+  const isBike = ride.vehicle_type === 'bike' || ride.vehicle_type === 'scooter' || ride.vehicle_type === 'motorcycle';
+  if (isBike && seatsRequested > 1) {
+    return { pass: false, reason: 'TWO_WHEELER_SEAT_LIMIT' };
+  }
+
+  // Gate 4: Available Seats Capacity Guard (SRS §6.6 Gate 4)
+  if ((ride.seats_available || 0) < seatsRequested) {
+    return { pass: false, reason: 'INSUFFICIENT_SEATS' };
+  }
+
+  // Gate 5: Driver Account Suspension Guard (SRS §6.6 Gate 5)
+  if (ride.is_banned || ride.driver_is_banned) {
+    return { pass: false, reason: 'DRIVER_BANNED' };
+  }
+
+  return { pass: true };
+}
+
+// ============================================================
+// 3. SRS §6.5 TRUST & PRIORITY SCORING ENGINE (0 to 100 Points)
+// ============================================================
+
+/**
+ * Calculates dynamic mathematical match score from 0 to 100:
+ *   Total Score = S_proximity (40) + S_trust (30) + S_time (20) + S_karma (10)
+ */
+function calculateMatchScore(ride, riderProfile = {}, pickupDistM = 0, dropDistM = 0, timeDiffMins = 0) {
+  // 1. Proximity Score (Max 40 Pts) — closer pickup/drop = higher score
+  const totalDetourDist = Math.max(0, pickupDistM + dropDistM);
+  const proximityScore = Math.max(0, Math.min(40, 40 - Math.round(totalDetourDist / 25)));
+
+  // 2. Corporate Trust Score (Max 30 Pts)
+  let trustScore = 10; // Default: Verified Public User (+10)
+  if (ride.driver_company_id && riderProfile.company_id && ride.driver_company_id === riderProfile.company_id) {
+    trustScore = 30; // Same Company Colleague (+30)
+  } else if (ride.driver_building_id && riderProfile.building_id && ride.driver_building_id === riderProfile.building_id) {
+    trustScore = 25; // Same Tech Park / Building (+25)
+  } else if (ride.driver_role === 'corporate_employee') {
+    trustScore = 15; // Other Corporate Employee (+15)
+  }
+
+  // 3. Time Schedule Score (Max 20 Pts) — departure time alignment
+  const timeScore = Math.max(0, Math.min(20, 20 - Math.round(Math.abs(timeDiffMins) / 3)));
+
+  // 4. Driver Karma / Safety Score (Max 10 Pts)
+  const driverTrust = ride.driver_trust_score != null ? ride.driver_trust_score : 50;
+  const karmaScore = Math.max(0, Math.min(10, Math.round(driverTrust / 10)));
+
+  // Total Combined Score (0 to 100)
+  const totalScore = Math.max(0, Math.min(100, proximityScore + trustScore + timeScore + karmaScore));
+
+  return {
+    total_score: totalScore,
+    breakdown: {
+      proximity: proximityScore,
+      corporate_trust: trustScore,
+      time_alignment: timeScore,
+      driver_karma: karmaScore,
+    },
+  };
+}
+
+// ─── Time Difference Helper ──────────────────────────────────
+function computeTimeDifferenceMinutes(rideDepartTime, riderTargetTime) {
+  if (!rideDepartTime || !riderTargetTime) return 0;
+
+  const parseMins = (t) => {
+    if (typeof t === 'string') {
+      const parts = t.split(':');
+      if (parts.length >= 2) return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+    if (t instanceof Date) return t.getHours() * 60 + t.getMinutes();
+    return 0;
+  };
+
+  const driverMins = parseMins(rideDepartTime);
+  const riderMins = parseMins(riderTargetTime);
+  return Math.abs(driverMins - riderMins);
+}
+
+// ============================================================
+// 4. TIER 2: COMPLETE IN-MEMORY MATCHING & RANKING PIPELINE
+// ============================================================
+
+/**
+ * Main matching orchestrator: Runs Tier 1 PostGIS fetch + Tier 2 Polyline & Scoring + Barrier Landmarks.
+ * 
+ * @param {object} riderProfile - { id, gender, role, company_id, building_id }
+ * @param {number} pickupLat - Rider pickup latitude
+ * @param {number} pickupLng - Rider pickup longitude
+ * @param {number} dropLat - Rider dropoff latitude
+ * @param {number} dropLng - Rider dropoff longitude
+ * @param {object} searchOptions - { seats_requested, time_type, target_date, target_time, vehicle_type }
+ * @returns {Array<object>} Ranked, formatted candidate rides for Flutter UI
+ */
+async function findMatchesForRider(
+  riderProfile,
+  pickupLat,
+  pickupLng,
+  dropLat,
+  dropLng,
+  searchOptions = {}
+) {
+  const seatsRequested = parseInt(searchOptions.seats_requested, 10) || 1;
+  const targetDate = searchOptions.target_date || new Date().toISOString().split('T')[0];
+  const targetTime = searchOptions.target_time || null;
+  const requestedVehicle = (searchOptions.vehicle_type || 'all').toLowerCase();
+
+  // 1. Concurrently Execute Tier 1 PostGIS fetch + Nearby Barrier Landmark lookup
+  const [candidateRides, suggestedBarrierLandmark] = await Promise.all([
+    fetchSpatialCandidateRides(
+      riderProfile.id,
+      pickupLat,
+      pickupLng,
+      dropLat,
+      dropLng,
+      {
+        seatsRequested,
+        maxRadiusMeters: MATCH_CONFIG.pickup_radius_extended,
+        timeType: searchOptions.time_type,
+        targetDate,
+      }
+    ),
+    fetchNearbyBarrierLandmark(pickupLat, pickupLng, MATCH_CONFIG.barrier_landmark_search_radius_m),
+  ]);
+
+  if (!candidateRides || candidateRides.length === 0) {
+    return [];
+  }
+
+  const directMatches = [];
+  const extendedCampusMatches = [];
+
+  for (const ride of candidateRides) {
+    // 2. Evaluate Hard Exclusion Gates (SRS §6.6)
+    const gateCheck = evaluateExclusionGates(ride, riderProfile, seatsRequested);
+    if (!gateCheck.pass) continue;
+
+    // Vehicle Type Filter (if rider explicitly specified car/bike)
+    if (requestedVehicle !== 'all') {
+      const isBike = ride.vehicle_type === 'bike' || ride.vehicle_type === 'scooter';
+      if (requestedVehicle === 'car' && isBike) continue;
+      if (requestedVehicle === 'bike' && !isBike) continue;
+    }
+
+    // Parse route waypoints
+    let waypoints = [];
+    if (Array.isArray(ride.route_waypoints)) {
+      waypoints = ride.route_waypoints;
+    } else if (Array.isArray(ride.route_points)) {
+      waypoints = ride.route_points;
+    } else if (typeof ride.route_waypoints === 'string') {
+      try {
+        waypoints = JSON.parse(ride.route_waypoints);
+      } catch (e) {
+        waypoints = [];
+      }
+    } else if (typeof ride.route_points === 'string') {
+      try {
+        waypoints = JSON.parse(ride.route_points);
+      } catch (e) {
+        waypoints = [];
+      }
+    }
+
+    // If no waypoints, synthesize from start & end points
+    if (waypoints.length === 0 && ride.pickup_dist_meters != null && ride.drop_dist_meters != null) {
+      waypoints = [
+        { lat: pickupLat, lng: pickupLng },
+        { lat: dropLat, lng: dropLng },
+      ];
+    }
+
+    const isLiveTrip = ride.ride_status === 'started';
+    const activePickupRadius = isLiveTrip ? MATCH_CONFIG.pickup_radius_started : MATCH_CONFIG.pickup_radius_posted;
+    const activeDropRadius = isLiveTrip ? MATCH_CONFIG.drop_radius_started : MATCH_CONFIG.drop_radius_posted;
+
+    // 3. Polyline Cross-Track Match: Check Pickup Point with true perpendicular line-segment projection
+    const pickupCheck = isNearRouteSegment(
+      waypoints,
+      0,
+      waypoints.length - 1,
+      pickupLat,
+      pickupLng,
+      activePickupRadius
+    );
+
+    // 4. Directionality Guard (SRS §6.4 & §6.6 Gate 2): Drop MUST be after pickup
+    const dropStartIndex = pickupCheck.match ? pickupCheck.index : 0;
+    const dropCheck = isNearRouteSegment(
+      waypoints,
+      dropStartIndex,
+      waypoints.length - 1,
+      dropLat,
+      dropLng,
+      activeDropRadius
+    );
+
+    const timeDiffMins = computeTimeDifferenceMinutes(ride.depart_time, targetTime);
+    const pickupDistM = Math.round(pickupCheck.distance === Infinity ? (ride.pickup_dist_meters || 0) : pickupCheck.distance);
+    const dropDistM = Math.round(dropCheck.distance === Infinity ? (ride.drop_dist_meters || 0) : dropCheck.distance);
+
+    // 5. Calculate Fare Breakdown via WalletService (SRS §4.9)
+    const fareEstimate = walletService.calculateFare(
+      Number(ride.distance_km) || 10.0,
+      ride.vehicle_type,
+      pickupDistM,
+      seatsRequested
+    );
+
+    // 6. Calculate Trust & Match Score (SRS §6.5)
+    const scoreResult = calculateMatchScore(ride, riderProfile, pickupDistM, dropDistM, timeDiffMins);
+
+    const formattedRide = {
+      ride_id: ride.ride_id,
+      driver_id: ride.driver_id,
+      driver_name: ride.driver_name,
+      driver_phone: ride.driver_phone,
+      driver_gender: ride.driver_gender,
+      driver_role: ride.driver_role,
+      driver_trust_score: ride.driver_trust_score,
+      driver_company_id: ride.driver_company_id,
+      driver_company_name: ride.driver_company_name || 'Verified Corporate',
+      driver_building_id: ride.driver_building_id,
+      driver_photo_url: ride.driver_photo_url,
+      vehicle_type: ride.vehicle_type,
+      vehicle_model: ride.vehicle_model,
+      vehicle_plate: ride.vehicle_plate || ride.vehicle_number,
+      seats_offered: ride.seats_offered,
+      seats_available: ride.seats_available,
+      time_type: ride.time_type,
+      depart_date: ride.depart_date,
+      depart_time: ride.depart_time,
+      distance_km: ride.distance_km,
+      ride_status: ride.ride_status,
+      women_only: Boolean(ride.women_only || ride.women_only_flag),
+      // Spatial & Fare Data
+      pickup_distance_meters: pickupDistM,
+      drop_distance_meters: dropDistM,
+      fare_coins: fareEstimate.total_rider_fare,
+      fare_breakdown: fareEstimate,
+      // Ranking & Scoring Data
+      match_score: scoreResult.total_score,
+      score_breakdown: scoreResult.breakdown,
+      // Physical Barrier Landmark (SRS §5.1.1)
+      suggested_barrier_landmark: suggestedBarrierLandmark,
+      // UI Tags
+      _is_extended_match: false,
+      _badge_color: scoreResult.breakdown.corporate_trust === 30 ? 'blue' : (scoreResult.breakdown.corporate_trust === 25 ? 'purple' : 'neutral'),
+      _badge_label: scoreResult.breakdown.corporate_trust === 30 ? '🏢 Same Company' : (scoreResult.breakdown.corporate_trust === 25 ? '📍 Same Tech Park' : null),
+    };
+
+    // Case A: Direct Match within 500m
+    if (pickupCheck.match && dropCheck.match) {
+      directMatches.push(formattedRide);
+    } 
+    // Case B: Campus Match (500m to 1500m) with same building_id (SRS §6.3.1)
+    else if (
+      !isLiveTrip &&
+      pickupDistM <= MATCH_CONFIG.pickup_radius_extended &&
+      ride.driver_building_id &&
+      riderProfile.building_id &&
+      ride.driver_building_id === riderProfile.building_id
+    ) {
+      const walkMins = Math.ceil(pickupDistM / MATCH_CONFIG.average_walk_speed_m_per_min);
+      extendedCampusMatches.push({
+        ...formattedRide,
+        _is_extended_match: true,
+        _walk_distance_m: pickupDistM,
+        _walk_time_mins: walkMins,
+        _badge_color: 'amber',
+        _badge_label: `⚡ Nearby (${walkMins} min walk required)`,
+      });
+    }
+  }
+
+  // If direct matches are fewer than 5, merge extended campus matches (SRS §6.3.1)
+  let finalMatches = [...directMatches];
+  if (finalMatches.length < MATCH_CONFIG.min_results_extended_threshold && extendedCampusMatches.length > 0) {
+    finalMatches = finalMatches.concat(extendedCampusMatches);
+  }
+
+  // Sort best match score first (Descending)
+  finalMatches.sort((a, b) => b.match_score - a.match_score);
+
+  return finalMatches.slice(0, MATCH_CONFIG.max_matches);
+}
+
 module.exports = {
-  matchRides,
-  dayCompatible,
-  timesCompatible,
+  MATCH_CONFIG,
   fetchSpatialCandidateRides,
-  CONFIG,
+  fetchNearbyBarrierLandmark,
+  evaluateExclusionGates,
+  calculateMatchScore,
+  findMatchesForRider,
 };

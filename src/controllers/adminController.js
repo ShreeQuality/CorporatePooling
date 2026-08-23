@@ -1,31 +1,85 @@
 // ============================================================
-// Admin Controller — Corporate Pooling App
-// User mgmt, document approvals, company mgmt, analytics
+// Admin Controller — Corporate Pooling Backend
+// Super Admin & Corporate HR Portal Operations
+// Source of Truth: SRS §13 (ESG Reports), §14 (Corporate Grants), §17.6 (SOS Monitor), Schema 014
 // ============================================================
 
 'use strict';
 
 const { supabaseAdmin } = require('../config/supabase');
-const { ok, created, badRequest, notFound, serverError } = require('../utils/response');
+const { ok, created, badRequest, notFound, forbidden, serverError } = require('../utils/response');
 
-// ─── Users ────────────────────────────────────────────────────
+// ============================================================
+// 1. DASHBOARD ANALYTICS & OVERVIEW
+// ============================================================
+
+async function getDashboardStats(req, res) {
+  try {
+    const [
+      { count: totalUsers },
+      { count: totalRides },
+      { count: activeRides },
+      { count: totalCompanies },
+      { count: activeSosIncidents },
+      { count: totalCarpoolAttendance },
+    ] = await Promise.all([
+      supabaseAdmin.from('users').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('rides').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('rides').select('*', { count: 'exact', head: true }).in('ride_status', ['posted', 'started', 'in_progress']),
+      supabaseAdmin.from('companies').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('emergency_sos_incidents').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      supabaseAdmin.from('corporate_attendance').select('*', { count: 'exact', head: true }).eq('transport_mode', 'carpool'),
+    ]);
+
+    const totalCo2SavedKg = Number(((totalCarpoolAttendance || 0) * 1.88).toFixed(2));
+
+    return ok(res, {
+      total_users: totalUsers || 0,
+      total_rides: totalRides || 0,
+      active_rides: activeRides || 0,
+      total_companies: totalCompanies || 0,
+      active_sos_alerts: activeSosIncidents || 0,
+      total_carpool_trips: totalCarpoolAttendance || 0,
+      total_co2_saved_kg: totalCo2SavedKg,
+    }, 'Dashboard metrics retrieved successfully.');
+  } catch (err) {
+    return serverError(res, err);
+  }
+}
+
+// ============================================================
+// 2. USER MANAGEMENT & BAN CONTROLS
+// ============================================================
 
 async function listUsers(req, res) {
   try {
-    const { user_type, is_verified, search, limit = 50, offset = 0 } = req.query;
+    const { role, is_banned, company_id, search, limit = 50, offset = 0 } = req.query;
+
     let query = supabaseAdmin
       .from('users')
-      .select('id, full_name, email, phone, user_type, company_id, is_email_verified, is_document_verified, is_driver_verified, is_active, coin_balance, karma_score, created_at, companies(name)')
+      .select(`
+        id, full_name, work_email, phone_number, role, gender,
+        company_id, building_id, dl_verified, is_banned, trust_score, created_at,
+        companies (id, name, domain),
+        wallets (available_balance, corporate_grant_balance, locked_balance)
+      `, { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+      .range(parseInt(offset, 10), parseInt(offset, 10) + parseInt(limit, 10) - 1);
 
-    if (user_type) query = query.eq('user_type', user_type);
-    if (is_verified !== undefined) query = query.eq('is_document_verified', is_verified === 'true');
-    if (search) query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+    if (role) query = query.eq('role', role);
+    if (is_banned !== undefined) query = query.eq('is_banned', is_banned === 'true');
+    if (company_id) query = query.eq('company_id', company_id);
+    if (search) query = query.or(`full_name.ilike.%${search}%,work_email.ilike.%${search}%`);
 
-    const { data, error } = await query;
-    if (error) return serverError(res, error);
-    return ok(res, data);
+    const { data: users, error, count } = await query;
+    if (error) return serverError(res, error, 'Failed to fetch users list.');
+
+    return ok(res, {
+      users: users || [],
+      total_count: count || 0,
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10),
+    });
   } catch (err) {
     return serverError(res, err);
   }
@@ -33,101 +87,91 @@ async function listUsers(req, res) {
 
 async function getUserDetail(req, res) {
   try {
-    const { data, error } = await supabaseAdmin
+    const { id } = req.params;
+
+    const { data: user, error } = await supabaseAdmin
       .from('users')
-      .select('*, companies(id, name, email_domain, subscription_status), document_verifications(*), vehicles(*)')
-      .eq('id', req.params.id)
+      .select(`
+        *,
+        companies (*),
+        vehicles (*),
+        wallets (*)
+      `)
+      .eq('id', id)
       .single();
 
-    if (error || !data) return notFound(res, 'User not found');
-    return ok(res, data);
+    if (error || !user) return notFound(res, 'User not found.');
+    return ok(res, user);
   } catch (err) {
     return serverError(res, err);
   }
 }
 
-async function toggleUserActive(req, res) {
+async function banUser(req, res) {
   try {
-    const { is_active } = req.body;
-    const { data, error } = await supabaseAdmin
-      .from('users').update({ is_active }).eq('id', req.params.id).select().single();
-    if (error) return serverError(res, error);
-    return ok(res, data, `User ${is_active ? 'activated' : 'deactivated'}`);
-  } catch (err) {
-    return serverError(res, err);
-  }
-}
+    const { id } = req.params;
+    const { is_banned, ban_reason } = req.body;
 
-// ─── Document Verifications ───────────────────────────────────
-
-async function listPendingDocuments(req, res) {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('document_verifications')
-      .select('id, user_id, doc_type, doc_url, status, created_at, users(full_name, email, user_type)')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true });
-
-    if (error) return serverError(res, error);
-    return ok(res, data);
-  } catch (err) {
-    return serverError(res, err);
-  }
-}
-
-async function approveDocument(req, res) {
-  try {
-    const docId = req.params.id;
-    const { data: doc } = await supabaseAdmin
-      .from('document_verifications').select('user_id, doc_type').eq('id', docId).single();
-    if (!doc) return notFound(res, 'Document not found');
-
-    await supabaseAdmin.from('document_verifications').update({
-      status: 'approved',
-      reviewed_by: req.admin.id,
-      reviewed_at: new Date().toISOString(),
-    }).eq('id', docId);
-
-    // Update user flags
-    const updates = {};
-    if (doc.doc_type === 'aadhaar' || doc.doc_type === 'photo') updates.is_document_verified = true;
-    if (doc.doc_type === 'driving_licence') updates.is_driver_verified = true;
-    if (Object.keys(updates).length > 0) {
-      await supabaseAdmin.from('users').update(updates).eq('id', doc.user_id);
+    if (typeof is_banned !== 'boolean') {
+      return badRequest(res, 'is_banned boolean flag is required.');
     }
 
-    return ok(res, null, 'Document approved');
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .update({
+        is_banned,
+        ban_reason: is_banned ? (ban_reason || 'Administrative action') : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('id, full_name, is_banned, ban_reason')
+      .single();
+
+    if (error) return serverError(res, error, 'Failed to update user ban status.');
+    return ok(res, data, `User ${is_banned ? 'suspended' : 're-activated'} successfully.`);
   } catch (err) {
     return serverError(res, err);
   }
 }
 
-async function rejectDocument(req, res) {
+async function verifyDriverDl(req, res) {
   try {
-    const { reason } = req.body;
-    const docId = req.params.id;
-    await supabaseAdmin.from('document_verifications').update({
-      status: 'rejected',
-      rejection_reason: reason || 'Does not meet requirements',
-      reviewed_by: req.admin.id,
-      reviewed_at: new Date().toISOString(),
-    }).eq('id', docId);
-    return ok(res, null, 'Document rejected');
+    const { id } = req.params;
+    const { dl_verified, dl_number } = req.body;
+
+    const updates = {
+      dl_verified: Boolean(dl_verified),
+      updated_at: new Date().toISOString(),
+    };
+    if (dl_number) updates.dl_number = dl_number.trim();
+
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .update(updates)
+      .eq('id', id)
+      .select('id, full_name, dl_verified, dl_number')
+      .single();
+
+    if (error) return serverError(res, error, 'Failed to update DL verification.');
+    return ok(res, data, `Driver license ${dl_verified ? 'verified' : 'unverified'} successfully.`);
   } catch (err) {
     return serverError(res, err);
   }
 }
 
-// ─── Companies ────────────────────────────────────────────────
+// ============================================================
+// 3. COMPANY & B2B SUBSCRIPTION MANAGEMENT
+// ============================================================
 
 async function listCompanies(req, res) {
   try {
     const { data, error } = await supabaseAdmin
       .from('companies')
-      .select('*, subscriptions(*)')
+      .select('*')
       .order('created_at', { ascending: false });
-    if (error) return serverError(res, error);
-    return ok(res, data);
+
+    if (error) return serverError(res, error, 'Failed to fetch companies.');
+    return ok(res, data || []);
   } catch (err) {
     return serverError(res, err);
   }
@@ -135,25 +179,27 @@ async function listCompanies(req, res) {
 
 async function createCompany(req, res) {
   try {
-    const { name, email_domain, max_employees } = req.body;
-    if (!name) return badRequest(res, 'Company name required');
+    const { name, domain, max_employees = 500, monthly_coin_grant_per_employee = 400 } = req.body;
+    if (!name || !domain) return badRequest(res, 'Company name and domain are required.');
+
+    const cleanDomain = domain.trim().toLowerCase().replace('@', '');
 
     const { data, error } = await supabaseAdmin
       .from('companies')
-      .insert({ name, email_domain: email_domain || null, max_employees: max_employees || 100 })
-      .select().single();
+      .insert({
+        name: name.trim(),
+        domain: cleanDomain,
+        max_employees: parseInt(max_employees, 10),
+        monthly_coin_grant_per_employee: parseFloat(monthly_coin_grant_per_employee),
+        subscription_tier: 'free_trial',
+        subscription_expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        is_active: true,
+      })
+      .select()
+      .single();
 
-    if (error) return serverError(res, error);
-
-    // Create default 90-day trial subscription
-    await supabaseAdmin.from('subscriptions').insert({
-      company_id: data.id,
-      plan: 'free_trial',
-      status: 'active',
-      expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-    });
-
-    return created(res, data, 'Company created with 90-day free trial');
+    if (error) return serverError(res, error, 'Failed to create company.');
+    return created(res, data, 'Company registered with 90-day free trial.');
   } catch (err) {
     return serverError(res, err);
   }
@@ -161,72 +207,163 @@ async function createCompany(req, res) {
 
 async function updateCompany(req, res) {
   try {
-    const { name, email_domain, subscription_status, is_active, max_employees } = req.body;
+    const { id } = req.params;
+    const {
+      name,
+      domain,
+      subscription_tier,
+      is_active,
+      max_employees,
+      monthly_coin_grant_per_employee,
+    } = req.body;
+
+    const updates = {};
+    if (name) updates.name = name.trim();
+    if (domain) updates.domain = domain.trim().toLowerCase().replace('@', '');
+    if (subscription_tier) updates.subscription_tier = subscription_tier;
+    if (typeof is_active === 'boolean') updates.is_active = is_active;
+    if (max_employees) updates.max_employees = parseInt(max_employees, 10);
+    if (monthly_coin_grant_per_employee != null) {
+      updates.monthly_coin_grant_per_employee = parseFloat(monthly_coin_grant_per_employee);
+    }
+    updates.updated_at = new Date().toISOString();
+
     const { data, error } = await supabaseAdmin
       .from('companies')
-      .update({ name, email_domain, subscription_status, is_active, max_employees })
-      .eq('id', req.params.id)
-      .select().single();
-    if (error) return serverError(res, error);
-    return ok(res, data, 'Company updated');
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return serverError(res, error, 'Failed to update company.');
+    return ok(res, data, 'Company updated successfully.');
   } catch (err) {
     return serverError(res, err);
   }
 }
 
-// ─── Analytics Dashboard ──────────────────────────────────────
+// ============================================================
+// 4. CORPORATE ESG & GREEN COMMUTE REPORT (SRS §13.3)
+// ============================================================
 
-async function getDashboardStats(req, res) {
+async function getCompanyEsgReport(req, res) {
   try {
-    const [
-      { count: totalUsers },
-      { count: totalRides },
-      { count: pendingDocs },
-      { count: totalCompanies },
-      { count: activeRides },
-    ] = await Promise.all([
-      supabaseAdmin.from('users').select('*', { count: 'exact', head: true }),
-      supabaseAdmin.from('rides').select('*', { count: 'exact', head: true }),
-      supabaseAdmin.from('document_verifications').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabaseAdmin.from('companies').select('*', { count: 'exact', head: true }),
-      supabaseAdmin.from('rides').select('*', { count: 'exact', head: true }).in('ride_status', ['posted', 'started', 'in_progress']),
-    ]);
+    const companyId = req.params.company_id || req.user.company_id;
+    if (!companyId) return badRequest(res, 'company_id is required.');
+
+    // 1. Fetch company profile
+    const { data: company, error: compErr } = await supabaseAdmin
+      .from('companies')
+      .select('id, name, domain, max_employees')
+      .eq('id', companyId)
+      .single();
+
+    if (compErr || !company) return notFound(res, 'Company not found.');
+
+    // 2. Fetch carpool attendance records
+    const { count: carpoolTrips } = await supabaseAdmin
+      .from('corporate_attendance')
+      .select('*', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('transport_mode', 'carpool');
+
+    // 3. Count unique participating employees
+    const { data: participants } = await supabaseAdmin
+      .from('corporate_attendance')
+      .select('employee_id')
+      .eq('company_id', companyId)
+      .eq('transport_mode', 'carpool');
+
+    const uniqueEmployees = new Set((participants || []).map((p) => p.employee_id)).size;
+    const totalCo2Kg = Number(((carpoolTrips || 0) * 1.88).toFixed(2));
+    const treeEquivalent = Number((totalCo2Kg / 21.77).toFixed(1)); // 1 mature tree absorbs ~21.77 kg CO2/year
 
     return ok(res, {
-      total_users: totalUsers,
-      total_rides: totalRides,
-      active_rides: activeRides,
-      pending_documents: pendingDocs,
-      total_companies: totalCompanies,
+      company_id: company.id,
+      company_name: company.name,
+      domain: company.domain,
+      metrics: {
+        total_carpool_commutes: carpoolTrips || 0,
+        active_carpoolers_count: uniqueEmployees,
+        employee_adoption_rate_pct: Number(((uniqueEmployees / (company.max_employees || 100)) * 100).toFixed(1)),
+        co2_saved_kg: totalCo2Kg,
+        co2_saved_tons: Number((totalCo2Kg / 1000).toFixed(3)),
+        tree_planting_equivalent: treeEquivalent,
+      },
+    }, 'Corporate ESG sustainability report generated.');
+  } catch (err) {
+    return serverError(res, err);
+  }
+}
+
+// ============================================================
+// 5. EMERGENCY SOS LIVE MONITOR (SRS §17.6)
+// ============================================================
+
+async function listActiveSosIncidents(req, res) {
+  try {
+    const { data: incidents, error } = await supabaseAdmin
+      .from('emergency_sos_incidents')
+      .select(`
+        id, ride_id, triggered_by, driver_id, vehicle_plate, trigger_lat, trigger_lng,
+        status, family_notified_count, created_at,
+        rider:users!triggered_by (id, full_name, phone_number, work_email),
+        driver:users!driver_id (id, full_name, phone_number, work_email)
+      `)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+
+    if (error) return serverError(res, error, 'Failed to fetch active SOS incidents.');
+    return ok(res, incidents || [], 'Active SOS incidents retrieved.');
+  } catch (err) {
+    return serverError(res, err);
+  }
+}
+
+// ============================================================
+// 6. ALL RIDES AUDIT
+// ============================================================
+
+async function listAllRides(req, res) {
+  try {
+    const { status, limit = 50, offset = 0 } = req.query;
+
+    let query = supabaseAdmin
+      .from('rides')
+      .select(`
+        id, from_address, to_address, ride_status, seats_offered, seats_available,
+        fare_coins, depart_time, depart_date, distance_km, created_at,
+        users!driver_id (id, full_name, work_email, phone_number)
+      `, { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(parseInt(offset, 10), parseInt(offset, 10) + parseInt(limit, 10) - 1);
+
+    if (status) query = query.eq('ride_status', status);
+
+    const { data: rides, error, count } = await query;
+    if (error) return serverError(res, error, 'Failed to list rides.');
+
+    return ok(res, {
+      rides: rides || [],
+      total_count: count || 0,
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10),
     });
   } catch (err) {
     return serverError(res, err);
   }
 }
 
-// ─── All Rides ────────────────────────────────────────────────
-
-async function listAllRides(req, res) {
-  try {
-    const { status, limit = 50, offset = 0 } = req.query;
-    let query = supabaseAdmin
-      .from('rides')
-      .select('id, from_address, to_address, ride_status, total_seats, available_seats, coin_per_seat, depart_time, distance_km, created_at, users!driver_id(full_name, email)')
-      .order('created_at', { ascending: false })
-      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
-
-    if (status) query = query.eq('ride_status', status);
-    const { data, error } = await query;
-    if (error) return serverError(res, error);
-    return ok(res, data);
-  } catch (err) {
-    return serverError(res, err);
-  }
-}
-
 module.exports = {
-  listUsers, getUserDetail, toggleUserActive,
-  listPendingDocuments, approveDocument, rejectDocument,
-  listCompanies, createCompany, updateCompany,
-  getDashboardStats, listAllRides,
+  getDashboardStats,
+  listUsers,
+  getUserDetail,
+  banUser,
+  verifyDriverDl,
+  listCompanies,
+  createCompany,
+  updateCompany,
+  getCompanyEsgReport,
+  listActiveSosIncidents,
+  listAllRides,
 };

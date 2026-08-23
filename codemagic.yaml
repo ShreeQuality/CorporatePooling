@@ -1,0 +1,28 @@
+workflows:
+  android-workflow:
+    name: KarmaRide Android Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "flutter.sdk=$FLUTTER_ROOT" > "$CM_BUILD_DIR/android/local.properties"
+      - name: Get Flutter packages
+        script: |
+          flutter packages pub get
+      - name: Build Android Release APK
+        script: |
+          flutter build apk --release --android-skip-build-dependency-validation
+    artifacts:
+      - build/**/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - shivam.quality@gmail.com
+        notify:
+          success: true
+          failure: true
