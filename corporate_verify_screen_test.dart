@@ -386,4 +386,120 @@ void main() {
       expect(find.text('Passkey Verified ✓ Proceed to KYC'), findsOneWidget);
     });
   });
+
+  group('Phase 7: End-to-End Polish, Offline Edge Cases & Screen Routing', () {
+    testWidgets('TC-5.25: Offline network error simulation triggers floating retry banner', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.enterText(find.byKey(const Key('work_email_input')), 'amit@infosys.com');
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const Key('send_otp_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Enter simulated offline OTP: 0 0 0 9 9 9
+      await tester.enterText(find.byKey(const Key('otp_digit_input_0')), '0');
+      await tester.enterText(find.byKey(const Key('otp_digit_input_1')), '0');
+      await tester.enterText(find.byKey(const Key('otp_digit_input_2')), '0');
+      await tester.enterText(find.byKey(const Key('otp_digit_input_3')), '9');
+      await tester.enterText(find.byKey(const Key('otp_digit_input_4')), '9');
+      // 6th digit auto-submits
+      await tester.enterText(find.byKey(const Key('otp_digit_input_5')), '9');
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Informs user with offline snackbar
+      expect(find.text('No internet connection. Retrying...'), findsOneWidget);
+    });
+
+    testWidgets('Preselected role "public_user" initializes directly into Public Commuter Portal', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: CorporateVerifyScreen(preselectedRole: 'public_user'),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('section_public_user')), findsOneWidget);
+      expect(find.text('Public Commuter Network'), findsOneWidget);
+    });
+
+    testWidgets('Public mode triggers onPublicModeSelected callback', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Map<String, dynamic>? publicData;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CorporateVerifyScreen(
+            onPublicModeSelected: (data) => publicData = data,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('toggle_mode_publicUser')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final publicKycBtn = find.byKey(const Key('continue_public_kyc_button'));
+      await tester.ensureVisible(publicKycBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(publicKycBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(publicData, isNotNull);
+      expect(publicData!['user_type'], 'public_user');
+    });
+
+    testWidgets('Corporate verification triggers onVerificationSuccess callback', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Map<String, dynamic>? verifiedData;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CorporateVerifyScreen(
+            onVerificationSuccess: (data) => verifiedData = data,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('have_invite_code_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.enterText(find.byKey(const Key('invite_code_input')), 'INFY26');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final verifyBtn = find.byKey(const Key('verify_invite_button'));
+      await tester.ensureVisible(verifyBtn);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(verifyBtn);
+      await tester.pump(const Duration(milliseconds: 350));
+
+      // Tap Proceed to KYC
+      await tester.tap(verifyBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(verifiedData, isNotNull);
+      expect(verifiedData!['user_type'], 'corporate_employee');
+      expect(verifiedData!['company_name'], 'Infosys Technologies');
+      expect(verifiedData!['corporate_status'], 'verified');
+    });
+  });
 }

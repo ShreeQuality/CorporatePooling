@@ -6,7 +6,7 @@ import '../../widgets/jarvis_holo_hud.dart';
 import '../../core/services/corporate_verify_validator.dart';
 
 /// Screen 5: Commuter Verification & Identity Gateway
-/// Phase 6: HR Invite Code & Corporate Passkey Bypass Flow (TC-5.28 to TC-5.32)
+/// Phase 7: End-to-End Visual Polish, Final Edge-Case Handling & Screen Transition Routing
 /// 100% Compliant with Screen 2 Golden Base Design System (Stardust Rainfall & Transparent Glassmorphism)
 enum CommuterIdentityMode {
   corporateEmployee,
@@ -19,7 +19,16 @@ enum CorporateAuthSubMode {
 }
 
 class CorporateVerifyScreen extends StatefulWidget {
-  const CorporateVerifyScreen({super.key});
+  final void Function(Map<String, dynamic> verificationData)? onVerificationSuccess;
+  final void Function(Map<String, dynamic> publicData)? onPublicModeSelected;
+  final String? preselectedRole; // 'corporate_employee' or 'public_user'
+
+  const CorporateVerifyScreen({
+    super.key,
+    this.onVerificationSuccess,
+    this.onPublicModeSelected,
+    this.preselectedRole,
+  });
 
   @override
   State<CorporateVerifyScreen> createState() => _CorporateVerifyScreenState();
@@ -27,7 +36,7 @@ class CorporateVerifyScreen extends StatefulWidget {
 
 class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with SingleTickerProviderStateMixin {
   // Identity Mode (Corporate Employee vs Public User)
-  CommuterIdentityMode _identityMode = CommuterIdentityMode.corporateEmployee;
+  late CommuterIdentityMode _identityMode;
 
   // Sub-mode under Corporate (Work Email vs Invite Code)
   CorporateAuthSubMode _corporateSubMode = CorporateAuthSubMode.workEmail;
@@ -77,6 +86,13 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
   @override
   void initState() {
     super.initState();
+
+    // Check if role was preselected
+    if (widget.preselectedRole == 'public_user') {
+      _identityMode = CommuterIdentityMode.publicUser;
+    } else {
+      _identityMode = CommuterIdentityMode.corporateEmployee;
+    }
 
     _shakeController = AnimationController(
       duration: const Duration(milliseconds: 400),
@@ -289,6 +305,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
       }
     });
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -336,6 +353,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
 
     _startResendCountdown();
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Row(
@@ -382,6 +400,12 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
   Future<void> _handleVerifyOtp() async {
     if (_isLockedOut || _isVerifyingOtp) return;
 
+    // TC-5.26: If already verified, route to Screen 6
+    if (_isOtpVerified) {
+      _proceedToKycAfterVerification();
+      return;
+    }
+
     final enteredOtp = _otpControllers.map((c) => c.text).join();
     if (enteredOtp.length < 6) return;
 
@@ -393,6 +417,42 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
 
     await Future.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
+
+    // TC-5.25: Simulation for Offline Network failure: "000999" triggers network retry message
+    if (enteredOtp == '000999') {
+      setState(() {
+        _isVerifyingOtp = false;
+      });
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.wifi_off_rounded, color: Color(0xFFFF9D00), size: 20),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'No internet connection. Retrying...',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF0E1630),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: const Color(0xFFFF9D00).withValues(alpha: 0.4)),
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
     // Simulation: "000000" triggers failed attempt
     if (enteredOtp == '000000') {
@@ -422,6 +482,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
       _isOtpVerified = true;
     });
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -468,6 +529,12 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
 
   /// TC-5.30, TC-5.31, TC-5.32: Handle HR Invite Code Verification
   Future<void> _handleVerifyInviteCode() async {
+    // If already verified, route to Screen 6
+    if (_isInviteCodeVerified) {
+      _proceedToKycAfterVerification();
+      return;
+    }
+
     final code = _inviteCodeController.text.trim().toUpperCase();
     if (!CorporateVerifyValidator.isValidInviteCode(code) || _isVerifyingInviteCode) return;
 
@@ -499,6 +566,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
       _verifiedInviteCompany = company;
     });
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -528,8 +596,65 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
     );
   }
 
+  /// Routing Gateway to Screen 6 (Mandatory Govt KYC)
+  void _proceedToKycAfterVerification() {
+    HapticFeedback.mediumImpact();
+    final payload = {
+      'user_type': 'corporate_employee',
+      'work_email': _emailController.text.trim(),
+      'company_name': _emailValidation?.companyName ?? _verifiedInviteCompany ?? 'Enterprise',
+      'corporate_status': 'verified',
+      'is_kyc_completed': false,
+    };
+
+    widget.onVerificationSuccess?.call(payload);
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.security_update_good_rounded, color: Color(0xFF00E5FF), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Corporate Identity Authenticated for ${payload["company_name"]}. Proceeding to Govt KYC...',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF0E1630),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.4)),
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(payload);
+    }
+  }
+
   void _handlePublicUserContinue() {
     HapticFeedback.mediumImpact();
+    final publicPayload = {
+      'user_type': 'public_user',
+      'company_id': null,
+      'corporate_status': 'none',
+      'is_kyc_completed': false,
+    };
+
+    widget.onPublicModeSelected?.call(publicPayload);
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Row(
@@ -557,6 +682,10 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
         duration: const Duration(seconds: 2),
       ),
     );
+
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(publicPayload);
+    }
   }
 
   @override
@@ -1420,13 +1549,13 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
           GestureDetector(
             key: const Key('verify_otp_button'),
             behavior: HitTestBehavior.opaque,
-            onTap: isOtpComplete && !_isVerifyingOtp && !_isLockedOut ? _handleVerifyOtp : null,
+            onTap: (isOtpComplete || _isOtpVerified) && !_isVerifyingOtp && !_isLockedOut ? _handleVerifyOtp : null,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 13),
               decoration: BoxDecoration(
-                gradient: isOtpComplete && !_isLockedOut
+                gradient: (isOtpComplete || _isOtpVerified) && !_isLockedOut
                     ? const LinearGradient(
                         colors: [
                           Color(0xFF00E5FF),
@@ -1434,9 +1563,9 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
                         ],
                       )
                     : null,
-                color: isOtpComplete && !_isLockedOut ? null : Colors.white.withValues(alpha: 0.06),
+                color: (isOtpComplete || _isOtpVerified) && !_isLockedOut ? null : Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: isOtpComplete && !_isLockedOut
+                boxShadow: (isOtpComplete || _isOtpVerified) && !_isLockedOut
                     ? [
                         BoxShadow(
                           color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
@@ -1469,14 +1598,14 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: isOtpComplete && !_isLockedOut ? Colors.black87 : Colors.white.withValues(alpha: 0.3),
+                        color: (isOtpComplete || _isOtpVerified) && !_isLockedOut ? Colors.black87 : Colors.white.withValues(alpha: 0.3),
                         fontSize: 13.5,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.3,
                       ),
                     ),
                   ),
-                  if (!_isVerifyingOtp && isOtpComplete && !_isLockedOut) ...[
+                  if (!_isVerifyingOtp && (isOtpComplete || _isOtpVerified) && !_isLockedOut) ...[
                     const SizedBox(width: 6),
                     const Icon(Icons.arrow_forward_rounded, color: Colors.black87, size: 15),
                   ],
@@ -1502,7 +1631,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
         color: Colors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isCodeValid
+          color: (isCodeValid || _isInviteCodeVerified)
               ? const Color(0xFF00E5FF).withValues(alpha: 0.4)
               : (_inviteCodeErrorMessage != null
                   ? const Color(0xFFFF5252).withValues(alpha: 0.4)
@@ -1511,7 +1640,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
         ),
         boxShadow: [
           BoxShadow(
-            color: (isCodeValid
+            color: ((isCodeValid || _isInviteCodeVerified)
                     ? const Color(0xFF00E5FF)
                     : (_inviteCodeErrorMessage != null ? const Color(0xFFFF5252) : const Color(0xFF00E5FF)))
                 .withValues(alpha: 0.04),
@@ -1582,11 +1711,11 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
               ),
               prefixIcon: Icon(
                 Icons.key_rounded,
-                color: isCodeValid ? const Color(0xFF00E5FF) : const Color(0xFF00E5FF).withValues(alpha: 0.7),
+                color: (isCodeValid || _isInviteCodeVerified) ? const Color(0xFF00E5FF) : const Color(0xFF00E5FF).withValues(alpha: 0.7),
                 size: 18,
               ),
               suffixIcon: _inviteCodeController.text.isNotEmpty
-                  ? (isCodeValid
+                  ? ((isCodeValid || _isInviteCodeVerified)
                       ? const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 18)
                       : (_inviteCodeErrorMessage != null
                           ? const Icon(Icons.error_outline_rounded, color: Color(0xFFFF5252), size: 18)
@@ -1602,7 +1731,7 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                  color: isCodeValid
+                  color: (isCodeValid || _isInviteCodeVerified)
                       ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
                       : (_inviteCodeErrorMessage != null
                           ? const Color(0xFFFF5252).withValues(alpha: 0.5)
@@ -1715,13 +1844,13 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
           GestureDetector(
             key: const Key('verify_invite_button'),
             behavior: HitTestBehavior.opaque,
-            onTap: isCodeValid && !_isVerifyingInviteCode ? _handleVerifyInviteCode : null,
+            onTap: (isCodeValid || _isInviteCodeVerified) && !_isVerifyingInviteCode ? _handleVerifyInviteCode : null,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
-                gradient: isCodeValid
+                gradient: (isCodeValid || _isInviteCodeVerified)
                     ? const LinearGradient(
                         colors: [
                           Color(0xFF00E5FF),
@@ -1729,9 +1858,9 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
                         ],
                       )
                     : null,
-                color: isCodeValid ? null : Colors.white.withValues(alpha: 0.06),
+                color: (isCodeValid || _isInviteCodeVerified) ? null : Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: isCodeValid
+                boxShadow: (isCodeValid || _isInviteCodeVerified)
                     ? [
                         BoxShadow(
                           color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
@@ -1764,14 +1893,14 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> with Sing
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: isCodeValid ? Colors.black87 : Colors.white.withValues(alpha: 0.3),
+                        color: (isCodeValid || _isInviteCodeVerified) ? Colors.black87 : Colors.white.withValues(alpha: 0.3),
                         fontSize: 13.5,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.3,
                       ),
                     ),
                   ),
-                  if (!_isVerifyingInviteCode && isCodeValid) ...[
+                  if (!_isVerifyingInviteCode && (isCodeValid || _isInviteCodeVerified)) ...[
                     const SizedBox(width: 6),
                     const Icon(Icons.arrow_forward_rounded, color: Colors.black87, size: 16),
                   ],

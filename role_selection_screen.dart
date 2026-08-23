@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../widgets/star_rain_1.dart';
 import '../../widgets/jarvis_holo_hud.dart';
+import 'corporate_verify_screen.dart';
 
 /// Screen 4: Role Selection Screen (Choose Your Journey)
 /// Options: Company vs User
@@ -28,39 +29,11 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
     if (_selectedRole == null) return;
     HapticFeedback.mediumImpact();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              _selectedRole == 'company'
-                  ? Icons.apartment_rounded
-                  : Icons.person_rounded,
-              color: _currentThemeColor,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                _selectedRole == 'company'
-                    ? 'Company Account Confirmed. Initializing Corporate Gateway...'
-                    : 'User Account Confirmed. Initializing Commuter Verification...',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13.5,
-                ),
-              ),
-            ),
-          ],
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => CorporateVerifyScreen(
+          preselectedRole: _selectedRole == 'company' ? 'corporate_employee' : 'public_user',
         ),
-        backgroundColor: const Color(0xFF0E1630),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: _currentThemeColor.withValues(alpha: 0.4)),
-        ),
-        duration: const Duration(seconds: 3),
       ),
     );
   }
