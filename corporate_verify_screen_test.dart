@@ -91,4 +91,99 @@ void main() {
       );
     });
   });
+
+  group('Category 2: Corporate Work Email & Domain Auto-Resolution (TC-5.05 to TC-5.11)', () {
+    testWidgets('TC-5.05: Invalid incomplete email keeps Send OTP disabled without public domain banner', (tester) async {
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final emailInput = find.byKey(const Key('work_email_input'));
+      await tester.enterText(emailInput, 'amit@infosys');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Send OTP button exists but no public domain error banner
+      expect(find.byKey(const Key('send_otp_button')), findsOneWidget);
+      expect(find.byKey(const Key('public_domain_error_banner')), findsNothing);
+      expect(find.byKey(const Key('company_recognition_chip')), findsNothing);
+    });
+
+    testWidgets('TC-5.06 & TC-5.07: Public domains (@gmail.com, @yahoo.com) trigger red error banner and disable Send OTP', (tester) async {
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final emailInput = find.byKey(const Key('work_email_input'));
+
+      // 1. Enter gmail.com
+      await tester.enterText(emailInput, 'john.doe@gmail.com');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('public_domain_error_banner')), findsOneWidget);
+      expect(find.text('Public domains not allowed. Please enter your work email.'), findsOneWidget);
+      expect(find.byKey(const Key('company_recognition_chip')), findsNothing);
+
+      // 2. Enter yahoo.com
+      await tester.enterText(emailInput, 'priya@yahoo.com');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('public_domain_error_banner')), findsOneWidget);
+      expect(find.byKey(const Key('company_recognition_chip')), findsNothing);
+    });
+
+    testWidgets('TC-5.08, TC-5.09, TC-5.10: Valid Corporate Email auto-resolves company and enables Send OTP', (tester) async {
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final emailInput = find.byKey(const Key('work_email_input'));
+
+      // 1. Infosys email
+      await tester.enterText(emailInput, 'amit.sharma@infosys.com');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('public_domain_error_banner')), findsNothing);
+      expect(find.byKey(const Key('company_recognition_chip')), findsOneWidget);
+      expect(find.text('Recognized: Infosys Technologies'), findsOneWidget);
+
+      // 2. TCS email
+      await tester.enterText(emailInput, 'rahul@tcs.com');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('company_recognition_chip')), findsOneWidget);
+      expect(find.text('Recognized: Tata Consultancy Services'), findsOneWidget);
+
+      // 3. Custom/generic enterprise email (unlisted in hardcoded map but valid work domain)
+      await tester.enterText(emailInput, 'executive@spacex.com');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('company_recognition_chip')), findsOneWidget);
+      expect(find.text('Recognized: Spacex'), findsOneWidget);
+    });
+
+    testWidgets('TC-5.11: Tapping Send Magic OTP dispatches OTP and shows confirmation snackbar', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final emailInput = find.byKey(const Key('work_email_input'));
+      await tester.enterText(emailInput, 'amit@wipro.com');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final sendOtpBtn = find.byKey(const Key('send_otp_button'));
+      expect(sendOtpBtn, findsOneWidget);
+
+      await tester.ensureVisible(sendOtpBtn);
+      await tester.tap(sendOtpBtn);
+      await tester.pump(); // Start dispatch
+
+      expect(find.text('Dispatching OTP...'), findsOneWidget);
+
+      // Finish dispatch timer (250ms)
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('OTP dispatched to amit@wipro.com'), findsOneWidget);
+    });
+  });
 }

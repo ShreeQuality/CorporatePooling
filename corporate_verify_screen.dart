@@ -5,11 +5,16 @@ import '../../widgets/jarvis_holo_hud.dart';
 import '../../core/services/corporate_verify_validator.dart';
 
 /// Screen 5: Commuter Verification & Identity Gateway
-/// Phase 3: Dual Mode Selector (Corporate Employee vs Public User) & Public User Profile Card
+/// Phase 4: Corporate Work Email Input, Live Domain Auto-Resolver & "Send OTP" Button
 /// 100% Compliant with Screen 2 Golden Base Design System (Stardust Rainfall & Transparent Glassmorphism)
 enum CommuterIdentityMode {
   corporateEmployee,
   publicUser,
+}
+
+enum CorporateAuthSubMode {
+  workEmail,
+  inviteCode,
 }
 
 class CorporateVerifyScreen extends StatefulWidget {
@@ -23,30 +28,41 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
   // Identity Mode (Corporate Employee vs Public User)
   CommuterIdentityMode _identityMode = CommuterIdentityMode.corporateEmployee;
 
+  // Sub-mode under Corporate (Work Email vs Invite Code)
+  CorporateAuthSubMode _corporateSubMode = CorporateAuthSubMode.workEmail;
+
   // Controllers & FocusNodes
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _inviteCodeController = TextEditingController();
   final FocusNode _emailFocusNode = FocusNode();
+  final FocusNode _inviteFocusNode = FocusNode();
 
   // State Variables
   CorporateEmailValidationResult? _emailValidation;
+  bool _isDispatchingOtp = false;
+  bool _isOtpSent = false;
+  bool _isVerifying = false;
 
   @override
   void initState() {
     super.initState();
     // TC-5.01: Auto-focus work email field on screen load if in Corporate mode
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _identityMode == CommuterIdentityMode.corporateEmployee) {
+      if (mounted && _identityMode == CommuterIdentityMode.corporateEmployee && _corporateSubMode == CorporateAuthSubMode.workEmail) {
         _emailFocusNode.requestFocus();
       }
     });
 
     _emailController.addListener(_onEmailChanged);
+    _inviteCodeController.addListener(_onInviteCodeChanged);
   }
 
   @override
   void dispose() {
     _emailController.dispose();
+    _inviteCodeController.dispose();
     _emailFocusNode.dispose();
+    _inviteFocusNode.dispose();
     super.dispose();
   }
 
@@ -56,17 +72,88 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
     });
   }
 
+  void _onInviteCodeChanged() {
+    setState(() {});
+  }
+
   void _switchIdentityMode(CommuterIdentityMode mode) {
     if (_identityMode == mode) return;
     HapticFeedback.lightImpact();
     setState(() {
       _identityMode = mode;
       if (mode == CommuterIdentityMode.corporateEmployee) {
-        _emailFocusNode.requestFocus();
+        if (_corporateSubMode == CorporateAuthSubMode.workEmail) {
+          _emailFocusNode.requestFocus();
+        } else {
+          _inviteFocusNode.requestFocus();
+        }
       } else {
         FocusScope.of(context).unfocus();
       }
     });
+  }
+
+  void _switchCorporateSubMode(CorporateAuthSubMode subMode) {
+    if (_corporateSubMode == subMode) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _corporateSubMode = subMode;
+      if (subMode == CorporateAuthSubMode.workEmail) {
+        _inviteCodeController.clear();
+        _emailFocusNode.requestFocus();
+      } else {
+        _emailController.clear();
+        _isOtpSent = false;
+        _inviteFocusNode.requestFocus();
+      }
+    });
+  }
+
+  Future<void> _handleSendOtp() async {
+    if (_emailValidation?.isValid != true || _isDispatchingOtp) return;
+
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isDispatchingOtp = true;
+    });
+
+    // Simulate Network Dispatch (250ms)
+    await Future.delayed(const Duration(milliseconds: 250));
+
+    if (!mounted) return;
+
+    setState(() {
+      _isDispatchingOtp = false;
+      _isOtpSent = true;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.mark_email_read_rounded, color: Color(0xFF00E5FF), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'OTP dispatched to ${_emailController.text.trim()}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF0E1630),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.4)),
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _handlePublicUserContinue() {
@@ -457,8 +544,12 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
     );
   }
 
-  /// 🏢 Section for Corporate Employee Mode (Ready for Phase 4)
+  /// 🏢 Section for Corporate Employee Mode (Phase 4 Implementation)
   Widget _buildCorporateEmployeeSection() {
+    final isEmailValid = _emailValidation?.isValid == true;
+    final isPublicDomain = _emailValidation?.isPublicDomain == true;
+    final companyName = _emailValidation?.companyName;
+
     return Container(
       key: const ValueKey('section_corporate_employee'),
       padding: const EdgeInsets.all(18),
@@ -466,12 +557,15 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
         color: Colors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.15),
+          color: isEmailValid
+              ? const Color(0xFF00E5FF).withValues(alpha: 0.4)
+              : (isPublicDomain ? const Color(0xFFFF5252).withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.15)),
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00E5FF).withValues(alpha: 0.04),
+            color: (isEmailValid ? const Color(0xFF00E5FF) : (isPublicDomain ? const Color(0xFFFF5252) : const Color(0xFF00E5FF)))
+                .withValues(alpha: 0.04),
             blurRadius: 20,
             spreadRadius: 2,
           ),
@@ -480,11 +574,12 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          // Sub-Header with Icon
+          Row(
             children: [
-              Icon(Icons.business_rounded, color: Color(0xFF00E5FF), size: 18),
-              SizedBox(width: 8),
-              Expanded(
+              const Icon(Icons.business_rounded, color: Color(0xFF00E5FF), size: 18),
+              const SizedBox(width: 8),
+              const Expanded(
                 child: Text(
                   'Corporate Email Verification',
                   style: TextStyle(
@@ -494,11 +589,25 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
                   ),
                 ),
               ),
+              if (_corporateSubMode == CorporateAuthSubMode.inviteCode)
+                GestureDetector(
+                  key: const Key('switch_to_email_button'),
+                  onTap: () => _switchCorporateSubMode(CorporateAuthSubMode.workEmail),
+                  child: const Text(
+                    'Use Email',
+                    style: TextStyle(
+                      color: Color(0xFF00E5FF),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 14),
 
-          // Work Email Input Box
+          // Work Email Input Box (TC-5.01, TC-5.05, TC-5.08, TC-5.10)
           TextField(
             key: const Key('work_email_input'),
             controller: _emailController,
@@ -506,9 +615,22 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
             keyboardType: TextInputType.emailAddress,
             style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w500),
             decoration: InputDecoration(
-              hintText: 'e.g. yourname@infosys.com',
+              hintText: 'e.g. amit@infosys.com',
               hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 13.5),
-              prefixIcon: Icon(Icons.alternate_email_rounded, color: const Color(0xFF00E5FF).withValues(alpha: 0.7), size: 18),
+              prefixIcon: Icon(
+                Icons.alternate_email_rounded,
+                color: isEmailValid
+                    ? const Color(0xFF00E5FF)
+                    : (isPublicDomain ? const Color(0xFFFF5252) : const Color(0xFF00E5FF).withValues(alpha: 0.7)),
+                size: 18,
+              ),
+              suffixIcon: _emailController.text.isNotEmpty
+                  ? (isEmailValid
+                      ? const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 18)
+                      : (isPublicDomain
+                          ? const Icon(Icons.error_outline_rounded, color: Color(0xFFFF5252), size: 18)
+                          : null))
+                  : null,
               filled: true,
               fillColor: Colors.white.withValues(alpha: 0.04),
               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -518,11 +640,171 @@ class _CorporateVerifyScreenState extends State<CorporateVerifyScreen> {
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                borderSide: BorderSide(
+                  color: isEmailValid
+                      ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
+                      : (isPublicDomain ? const Color(0xFFFF5252).withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.15)),
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Color(0xFF00E5FF), width: 1.5),
+                borderSide: BorderSide(
+                  color: isPublicDomain ? const Color(0xFFFF5252) : const Color(0xFF00E5FF),
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+
+          // TC-5.06 & TC-5.07: Red Inline Error for Public Domains
+          if (isPublicDomain) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const Key('public_domain_error_banner'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF5252).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Color(0xFFFF5252), size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Public domains not allowed. Please enter your work email.',
+                      style: TextStyle(
+                        color: Color(0xFFFF5252),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // TC-5.09: Enterprise Domain Auto-Resolution Chip
+          if (isEmailValid && companyName != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const Key('company_recognition_chip'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.verified_rounded, color: Color(0xFF00E5FF), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Recognized: $companyName',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 18),
+
+          // TC-5.08 & TC-5.11: Send OTP Button
+          GestureDetector(
+            key: const Key('send_otp_button'),
+            behavior: HitTestBehavior.opaque,
+            onTap: isEmailValid && !_isDispatchingOtp ? _handleSendOtp : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                gradient: isEmailValid
+                    ? const LinearGradient(
+                        colors: [
+                          Color(0xFF00E5FF),
+                          Color(0xFF0088FF),
+                        ],
+                      )
+                    : null,
+                color: isEmailValid ? null : Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: isEmailValid
+                    ? [
+                        BoxShadow(
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : [],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isDispatchingOtp) ...[
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(
+                    child: Text(
+                      _isDispatchingOtp ? 'Dispatching OTP...' : 'Send Magic OTP',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isEmailValid ? Colors.black87 : Colors.white.withValues(alpha: 0.3),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  if (!_isDispatchingOtp && isEmailValid) ...[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.arrow_forward_rounded, color: Colors.black87, size: 16),
+                  ],
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Secondary Action: Have an HR Invite Code?
+          Center(
+            child: GestureDetector(
+              key: const Key('have_invite_code_button'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _switchCorporateSubMode(CorporateAuthSubMode.inviteCode),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  'Firewall issue? Enter HR Invite Code instead',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    decoration: TextDecoration.underline,
+                    decorationColor: Colors.white.withValues(alpha: 0.3),
+                  ),
+                ),
               ),
             ),
           ),
