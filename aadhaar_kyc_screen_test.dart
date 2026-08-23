@@ -20,7 +20,7 @@ void main() {
   final checkDigit16 = AadhaarKycValidator.generateVerhoeffCheckDigit(testPrefix15);
   final validVid16 = '$testPrefix15$checkDigit16';
 
-  group('AadhaarKycScreen - Phase 2 & 3 Tests', () {
+  group('AadhaarKycScreen - Phase 2, 3 & 4 Tests', () {
     testWidgets('TC-6.01-UI: Screen loads with Stardust rainfall, Top Navigation Bar and Back Button', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
@@ -169,6 +169,85 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.text('DPDP Act 2023 Privacy Shield'), findsNothing);
+    });
+
+    testWidgets('TC-6.10 & TC-6.11: Opens DigiLocker Gateway, displays 256-Bit SSL URL and allows cancel', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createTestWidget());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Enter valid Aadhaar
+      final inputField = find.byKey(const Key('aadhaar_input_field'));
+      await tester.enterText(inputField, validAadhaar12);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Give DPDP consent
+      final consentCard = find.byKey(const Key('dpdp_consent_card'));
+      await tester.ensureVisible(consentCard);
+      await tester.tap(consentCard);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Tap Verify via DigiLocker
+      final verifyBtn = find.byKey(const Key('verify_digilocker_button'));
+      await tester.ensureVisible(verifyBtn);
+      await tester.tap(verifyBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify DigiLocker Gateway card
+      expect(find.byKey(const Key('digilocker_webview_modal')), findsOneWidget);
+      expect(find.text('256-BIT SSL'), findsOneWidget);
+      expect(find.text('DigiLocker Consent Request'), findsOneWidget);
+      expect(find.byKey(const Key('digilocker_otp_input')), findsOneWidget);
+
+      // Test Cancel & Return
+      final cancelBtn = find.byKey(const Key('digilocker_cancel_button'));
+      await tester.ensureVisible(cancelBtn);
+      await tester.tap(cancelBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('aadhaar_input_card')), findsOneWidget);
+      expect(find.byKey(const Key('digilocker_webview_modal')), findsNothing);
+    });
+
+    testWidgets('TC-6.12 to TC-6.15: Authorizing DigiLocker OTP extracts UIDAI Signed XML and advances to Selfie Liveness', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createTestWidget());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Enter valid Aadhaar & DPDP consent
+      await tester.enterText(find.byKey(const Key('aadhaar_input_field')), validAadhaar12);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('dpdp_consent_card')));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Open DigiLocker Gateway
+      await tester.tap(find.byKey(const Key('verify_digilocker_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Authorize DigiLocker OTP
+      final authBtn = find.byKey(const Key('digilocker_authorize_button'));
+      await tester.ensureVisible(authBtn);
+      await tester.tap(authBtn);
+
+      // Pump to simulate async retrieval
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify parsed XML payload preview on Selfie Liveness step
+      expect(find.byKey(const Key('selfie_liveness_card')), findsOneWidget);
+      expect(find.text('UIDAI Signed XML e-KYC Extracted'), findsOneWidget);
+      expect(find.text('Rahul Kumar'), findsOneWidget);
+      expect(find.text('15/08/1996'), findsOneWidget);
+      expect(find.text('Bengaluru, Karnataka'), findsOneWidget);
+      expect(find.text('SYS.AUTH // FACE_LIVENESS'), findsOneWidget);
     });
   });
 }

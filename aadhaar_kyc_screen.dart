@@ -7,14 +7,14 @@ import '../../core/services/aadhaar_kyc_validator.dart';
 /// Current active verification step on Screen 6
 enum AadhaarVerificationStep {
   idInput, // Enter 12-digit Aadhaar / 16-digit VID
-  digilockerModal, // DigiLocker OAuth WebView BottomSheet
+  digilockerModal, // DigiLocker OAuth WebView Gateway
   qrScannerModal, // Secure QR Scanner Camera fallback
   selfieLiveness, // Anti-Fraud Selfie & Face Match
   verifiedSuccess, // Verification complete & Profile created
 }
 
 /// Screen 6: Aadhaar KYC & Identity Verification (Trust Shield Gateway)
-/// Phase 3: Smart Aadhaar/VID Input Card, Real-time Verhoeff Feedback & DPDP Act 2023 Consent
+/// Phase 4: DigiLocker OAuth WebView Gateway Simulation & XML e-KYC Parsing
 /// 100% Compliant with Screen 2 Golden Base Design System (Stardust Rainfall & Transparent Glassmorphism)
 class AadhaarKycScreen extends StatefulWidget {
   final void Function(AadhaarProfilePayload profile)? onKycSuccess;
@@ -53,6 +53,13 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
   // Controllers & Focus Node for Input
   final TextEditingController _idController = TextEditingController();
   final FocusNode _idFocusNode = FocusNode();
+
+  // DigiLocker OTP Controller
+  final TextEditingController _digiLockerOtpController = TextEditingController(text: '123456');
+
+  // Loading State in DigiLocker Gateway
+  bool _isDigiLockerLoading = false;
+  String? _digiLockerError;
 
   // DPDP Consent Checkbox state
   bool _isDpdpConsentGiven = false;
@@ -110,6 +117,7 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
     _dpdpShakeController.dispose();
     _idController.dispose();
     _idFocusNode.dispose();
+    _digiLockerOtpController.dispose();
     super.dispose();
   }
 
@@ -125,6 +133,8 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
         return const Color(0xFF00E676); // Emerald Trust Green
       case AadhaarVerificationStep.selfieLiveness:
         return const Color(0xFFFF9D00); // Amber Liveness Guide
+      case AadhaarVerificationStep.digilockerModal:
+        return const Color(0xFF2979FF); // DigiLocker Blue
       default:
         return const Color(0xFF00E5FF); // Electric Cyan
     }
@@ -172,6 +182,47 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
     HapticFeedback.mediumImpact();
     setState(() {
       _currentStep = AadhaarVerificationStep.digilockerModal;
+      _digiLockerError = null;
+      _isDigiLockerLoading = false;
+    });
+  }
+
+  /// Handle DigiLocker Authorization & XML e-KYC Extraction
+  Future<void> _authorizeDigiLockerAndFetchXml() async {
+    final otp = _digiLockerOtpController.text.trim();
+    if (otp.length != 6) {
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _digiLockerError = 'Please enter a valid 6-digit DigiLocker security OTP.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isDigiLockerLoading = true;
+      _digiLockerError = null;
+    });
+
+    // Simulate cryptographic UIDAI retrieval
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (!mounted) return;
+
+    final profile = AadhaarKycValidator.parseVerifiedPayload(
+      rawOrMaskedId: _idController.text,
+      name: 'Rahul Kumar',
+      dob: '15/08/1996',
+      gender: 'Male',
+      state: 'Karnataka',
+      district: 'Bengaluru',
+      pincode: '560100',
+    );
+
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isDigiLockerLoading = false;
+      _verifiedProfile = profile;
+      _currentStep = AadhaarVerificationStep.selfieLiveness;
     });
   }
 
@@ -404,7 +455,7 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
 
                           const SizedBox(height: 24),
 
-                          // Main Content Area with Animated Shake Physics
+                          // Dynamic Step Content Card with Animated Shake Physics
                           AnimatedBuilder(
                             animation: _shakeAnimation,
                             builder: (context, child) {
@@ -413,7 +464,7 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                                 child: child,
                               );
                             },
-                            child: _buildIdInputAndConsentCard(accentColor),
+                            child: _buildCurrentStepContent(accentColor),
                           ),
 
                           const SizedBox(height: 24),
@@ -443,7 +494,14 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
             behavior: HitTestBehavior.opaque,
             onTap: () {
               HapticFeedback.lightImpact();
-              Navigator.maybePop(context);
+              if (_currentStep == AadhaarVerificationStep.digilockerModal ||
+                  _currentStep == AadhaarVerificationStep.qrScannerModal) {
+                setState(() {
+                  _currentStep = AadhaarVerificationStep.idInput;
+                });
+              } else {
+                Navigator.maybePop(context);
+              }
             },
             child: Container(
               width: 40,
@@ -498,7 +556,9 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                       ? 'SYS.AUTH // KYC_VERIFIED'
                       : (_currentStep == AadhaarVerificationStep.selfieLiveness
                           ? 'SYS.AUTH // FACE_LIVENESS'
-                          : 'SYS.AUTH // GOVT_KYC'),
+                          : (_currentStep == AadhaarVerificationStep.digilockerModal
+                              ? 'SYS.AUTH // DIGILOCKER_OAUTH'
+                              : 'SYS.AUTH // GOVT_KYC')),
                   style: TextStyle(
                     color: accentColor,
                     fontSize: 11,
@@ -528,7 +588,9 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                 ? Icons.check_circle_rounded
                 : (_currentStep == AadhaarVerificationStep.selfieLiveness
                     ? Icons.camera_front_rounded
-                    : Icons.verified_user_rounded),
+                    : (_currentStep == AadhaarVerificationStep.digilockerModal
+                        ? Icons.account_balance_rounded
+                        : Icons.verified_user_rounded)),
           ),
         ),
         const SizedBox(height: 14),
@@ -548,17 +610,26 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                _currentStep == AadhaarVerificationStep.verifiedSuccess ? '🛡️' : '🔒',
+                _currentStep == AadhaarVerificationStep.verifiedSuccess
+                    ? '🛡️'
+                    : (_currentStep == AadhaarVerificationStep.digilockerModal ? '🏛️' : '🔒'),
                 style: const TextStyle(fontSize: 12),
               ),
               const SizedBox(width: 6),
-              Text(
-                'UIDAI Trust Gateway // DPDP 2023',
-                style: TextStyle(
-                  color: accentColor,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
+              Flexible(
+                child: Text(
+                  _currentStep == AadhaarVerificationStep.digilockerModal
+                      ? 'DigiLocker Gateway // MeitY'
+                      : (_currentStep == AadhaarVerificationStep.selfieLiveness
+                          ? 'Facial Liveness // Anti-Fraud'
+                          : 'UIDAI Trust Gateway // DPDP 2023'),
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: accentColor,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ),
             ],
@@ -567,10 +638,14 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
         const SizedBox(height: 10),
 
         // Title
-        const Text(
-          'Verify Government Identity',
+        Text(
+          _currentStep == AadhaarVerificationStep.digilockerModal
+              ? 'DigiLocker OAuth Gateway'
+              : (_currentStep == AadhaarVerificationStep.selfieLiveness
+                  ? 'Verify Facial Liveness'
+                  : 'Verify Government Identity'),
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w800,
             color: Colors.white,
@@ -581,12 +656,440 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
 
         // Subtitle
         Text(
-          'Mandatory KYC under DPDP Act 2023 for 100% verified & safe commuter carpools.',
+          _currentStep == AadhaarVerificationStep.digilockerModal
+              ? 'Secure tokenized e-KYC retrieval directly from National e-Governance Division.'
+              : (_currentStep == AadhaarVerificationStep.selfieLiveness
+                  ? 'Match your live photo against the verified government e-KYC record.'
+                  : 'Mandatory KYC under DPDP Act 2023 for 100% verified & safe commuter carpools.'),
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,
             color: Colors.white.withValues(alpha: 0.65),
             height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Switches active card content based on current verification step
+  Widget _buildCurrentStepContent(Color accentColor) {
+    switch (_currentStep) {
+      case AadhaarVerificationStep.idInput:
+        return _buildIdInputAndConsentCard(accentColor);
+      case AadhaarVerificationStep.digilockerModal:
+        return _buildDigiLockerGatewayCard(accentColor);
+      case AadhaarVerificationStep.selfieLiveness:
+        return _buildSelfieLivenessPreviewCard(accentColor);
+      default:
+        return _buildIdInputAndConsentCard(accentColor);
+    }
+  }
+
+  /// Phase 4: DigiLocker OAuth Gateway Card Simulation
+  Widget _buildDigiLockerGatewayCard(Color accentColor) {
+    final maskedAadhaar = AadhaarKycValidator.maskAadhaar(_idController.text.isNotEmpty ? _idController.text : '234567890123');
+
+    return Container(
+      key: const Key('digilocker_webview_modal'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFF2979FF).withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2979FF).withValues(alpha: 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Browser URL & Security Pill Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF09122C),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.lock_rounded, color: Color(0xFF00E676), size: 14),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'https://api.digitallocker.gov.in/oauth2/1/authorize',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E676).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    '256-BIT SSL',
+                    style: TextStyle(
+                      color: Color(0xFF69F0AE),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Header with DigiLocker Emblem
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2979FF).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF2979FF).withValues(alpha: 0.4)),
+                ),
+                child: const Icon(Icons.account_balance_rounded, color: Color(0xFF2979FF), size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'DigiLocker Consent Request',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Target ID: $maskedAadhaar',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Scope Details Box
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.02),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Data requested by Corporate Pooling Shield:',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _buildScopeBullet('Full Name & Date of Birth'),
+                _buildScopeBullet('Gender & Residential Pincode'),
+                _buildScopeBullet('UIDAI Cryptographic Signature (Tamper-Proof)'),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // 6-Digit DigiLocker OTP Input
+          const Text(
+            'Enter DigiLocker 6-Digit Security PIN / OTP',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+            ),
+            child: TextField(
+              key: const Key('digilocker_otp_input'),
+              controller: _digiLockerOtpController,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 6.0,
+              ),
+              decoration: const InputDecoration(
+                counterText: '',
+                prefixIcon: Icon(Icons.pin_rounded, color: Color(0xFF2979FF), size: 20),
+                hintText: '123456',
+                hintStyle: TextStyle(color: Colors.white30, letterSpacing: 6.0),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+            ),
+          ),
+
+          if (_digiLockerError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _digiLockerError!,
+              style: const TextStyle(
+                color: Color(0xFFFF5252),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // Primary Authorize Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              key: const Key('digilocker_authorize_button'),
+              onPressed: _isDigiLockerLoading ? null : _authorizeDigiLockerAndFetchXml,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2979FF),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                elevation: 6,
+                shadowColor: const Color(0xFF2979FF).withValues(alpha: 0.5),
+              ),
+              child: _isDigiLockerLoading
+                  ? const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        ),
+                        SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            'Fetching UIDAI XML...',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.verified_rounded, size: 18),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Authorize & Fetch e-KYC',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // Cancel & Return Button
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: TextButton(
+              key: const Key('digilocker_cancel_button'),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                setState(() {
+                  _currentStep = AadhaarVerificationStep.idInput;
+                });
+              },
+              child: Text(
+                'Cancel & Return',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScopeBullet(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 14),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Selfie Liveness & Verified Profile Preview (Phase 4 Bridge to Phase 5)
+  Widget _buildSelfieLivenessPreviewCard(Color accentColor) {
+    final profile = _verifiedProfile;
+
+    return Container(
+      key: const Key('selfie_liveness_card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFFFF9D00).withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // e-KYC Extracted Success Chip
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E676).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'UIDAI Signed XML e-KYC Extracted',
+                  style: TextStyle(
+                    color: Color(0xFF69F0AE),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Extracted Profile Details Box
+          if (profile != null) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              ),
+              child: Column(
+                children: [
+                  _buildProfileRow('Full Legal Name', profile.fullName),
+                  const Divider(color: Colors.white10, height: 16),
+                  _buildProfileRow('Masked ID', profile.maskedAadhaar),
+                  const Divider(color: Colors.white10, height: 16),
+                  _buildProfileRow('Date of Birth', profile.dob),
+                  const Divider(color: Colors.white10, height: 16),
+                  _buildProfileRow('Jurisdiction', '${profile.district}, ${profile.state}'),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // Liveness Instruction
+          const Text(
+            'Step 2: Anti-Fraud Selfie Match',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Align your face within the holographic HUD frame to complete identity verification.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.6),
+            fontSize: 12,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
           ),
         ),
       ],
