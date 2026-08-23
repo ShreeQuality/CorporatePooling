@@ -4,8 +4,9 @@ import '../../widgets/star_rain_1.dart';
 import '../../widgets/jarvis_holo_hud.dart';
 
 /// Screen 4: Role Selection Screen (Choose Your Journey)
+/// Options: Company vs User
 /// Enhanced with J.A.R.V.I.S. Holographic HUD Reactor & HUD Telemetry Targeting
-/// 100% Compliant with Screen 2 Golden Base Design System (Stardust Rainfall & Frosted Glassmorphism)
+/// 100% Compliant with Screen 2 Golden Base Design System (Stardust Rainfall & Transparent Glassmorphism)
 class RoleSelectionScreen extends StatefulWidget {
   const RoleSelectionScreen({super.key});
 
@@ -14,10 +15,10 @@ class RoleSelectionScreen extends StatefulWidget {
 }
 
 class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
-  String? _selectedRole; // 'corporate' or 'public'
+  String? _selectedRole; // 'company' or 'user'
 
   Color get _currentThemeColor {
-    if (_selectedRole == 'public') {
+    if (_selectedRole == 'user') {
       return const Color(0xFFFF9D00); // Molten Amber
     }
     return const Color(0xFF00E5FF); // Electric Cyan
@@ -32,18 +33,18 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
         content: Row(
           children: [
             Icon(
-              _selectedRole == 'corporate'
-                  ? Icons.business_center_rounded
-                  : Icons.directions_car_filled_rounded,
+              _selectedRole == 'company'
+                  ? Icons.apartment_rounded
+                  : Icons.person_rounded,
               color: _currentThemeColor,
               size: 20,
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                _selectedRole == 'corporate'
-                    ? 'Corporate Journey Confirmed. Initializing Tech Park Gateway...'
-                    : 'Public Commuter Confirmed. Initializing KYC Verification...',
+                _selectedRole == 'company'
+                    ? 'Company Account Confirmed. Initializing Corporate Gateway...'
+                    : 'User Account Confirmed. Initializing Commuter Verification...',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -115,20 +116,20 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                     _buildJarvisHeader(),
                     const SizedBox(height: 28),
                     _buildRoleCard(
-                      roleId: 'corporate',
-                      title: 'Corporate Employee',
-                      subtitle: 'Pool with verified colleagues from your tech park & office campus.',
-                      badgeText: '🌟 100 Welcome Coins',
-                      icon: Icons.business_center_rounded,
+                      roleId: 'company',
+                      title: 'Company',
+                      subtitle: 'Register corporate campus, manage tech park fleet, & employee commuter pools.',
+                      badgeText: '🏢 Corporate Partner',
+                      icon: Icons.apartment_rounded,
                       accentColor: const Color(0xFF00E5FF),
                     ),
                     const SizedBox(height: 18),
                     _buildRoleCard(
-                      roleId: 'public',
-                      title: 'Public Commuter',
-                      subtitle: 'Open community ridesharing with verified government ID.',
-                      badgeText: '🛡️ Aadhaar Verified',
-                      icon: Icons.directions_car_filled_rounded,
+                      roleId: 'user',
+                      title: 'User',
+                      subtitle: 'Join daily shared pools, offer extra seats, & ride with verified peers.',
+                      badgeText: '🌟 Verified Commuter',
+                      icon: Icons.person_rounded,
                       accentColor: const Color(0xFFFF9D00),
                     ),
                     const SizedBox(height: 32),
@@ -151,10 +152,10 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
         JarvisHoloHud(
           size: 110,
           accentColor: _currentThemeColor,
-          centerIcon: _selectedRole == 'corporate'
+          centerIcon: _selectedRole == 'company'
               ? Icons.apartment_rounded
-              : _selectedRole == 'public'
-                  ? Icons.commute_rounded
+              : _selectedRole == 'user'
+                  ? Icons.person_rounded
                   : Icons.all_inclusive_rounded,
         ),
         const SizedBox(height: 20),
@@ -362,7 +363,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
           borderRadius: BorderRadius.circular(16),
           gradient: isEnabled
               ? LinearGradient(
-                  colors: _selectedRole == 'corporate'
+                  colors: _selectedRole == 'company'
                       ? [const Color(0xFF00E5FF), const Color(0xFF0088FF)]
                       : [const Color(0xFFFFB300), const Color(0xFFFF6D00)],
                 )
@@ -392,7 +393,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Continue to Verification',
+                    'Continue',
                     style: TextStyle(
                       color: isEnabled ? const Color(0xFF050814) : const Color(0xFF64748B),
                       fontSize: 16,
