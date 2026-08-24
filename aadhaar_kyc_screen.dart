@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../widgets/star_rain_1.dart';
 import '../../widgets/jarvis_holo_hud.dart';
 import '../../core/services/aadhaar_kyc_validator.dart';
+import 'driver_kyc_screen.dart';
 
 /// Current active verification step on Screen 6
 enum AadhaarVerificationStep {
@@ -905,11 +906,18 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
               onPressed: () {
                 HapticFeedback.mediumImpact();
                 widget.onKycSuccess?.call(profile);
-                Navigator.maybePop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => DriverKycScreen(
+                      verifiedAadhaarProfile: profile,
+                      previousPayload: widget.previousPayload,
+                    ),
+                  ),
+                );
               },
               icon: const Icon(Icons.arrow_forward_rounded, size: 18),
               label: const Text(
-                'Proceed to Commuter Portal',
+                'Proceed to Driver & Vehicle KYC',
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 15,
