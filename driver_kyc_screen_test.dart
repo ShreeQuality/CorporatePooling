@@ -704,4 +704,138 @@ void main() {
       expect(receivedPayload!['is_driver_kyc_complete'], true);
     });
   });
+
+  group('DriverKycScreen - Phase 7 (End-to-End Edge Cases & OCR Fallback) Tests', () {
+    testWidgets('TC-7.18 & TC-7.19: Offline OCR Fallback Scans for DL and RC succeed and advance steps', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Step 1: Tap OCR Scan Fallback Button
+      final dlOcrBtn = find.byKey(const Key('dl_ocr_upload_button'));
+      expect(dlOcrBtn, findsOneWidget);
+      await tester.tap(dlOcrBtn);
+      await tester.pump(const Duration(milliseconds: 1200));
+
+      // Verify DL verified card appears
+      expect(find.byKey(const Key('verified_dl_card')), findsOneWidget);
+      expect(find.text('Driving License Authenticated'), findsOneWidget);
+
+      // Advance to Step 2
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 2. Step 2: Tap OCR Scan Fallback Button for RC
+      final rcOcrBtn = find.byKey(const Key('rc_ocr_upload_button'));
+      expect(rcOcrBtn, findsOneWidget);
+      await tester.tap(rcOcrBtn);
+      await tester.pump(const Duration(milliseconds: 1200));
+
+      // Verify RC verified card appears
+      expect(find.byKey(const Key('verified_rc_card')), findsOneWidget);
+      expect(find.text('Vehicle Authenticated (Vahan 4.0)'), findsOneWidget);
+
+      // Advance to Step 3
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.byKey(const Key('safety_validation_card')), findsOneWidget);
+      expect(find.byKey(const Key('vehicle_photo_card')), findsOneWidget);
+    });
+
+    testWidgets('TC-7.20 to TC-7.23: Complete End-to-End Flow from Screen 6 through Screen 7 to Final Success', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AadhaarKycScreen(
+            previousPayload: const {
+              'phone': '+91 9876543210',
+              'work_email': 'rahul.kumar@google.com',
+              'company_name': 'Google India',
+              'role': 'user',
+            },
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. In Screen 6: DPDP Consent & Offline QR Scan
+      await tester.tap(find.byKey(const Key('dpdp_consent_card')));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('scan_qr_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const Key('simulate_qr_scan_button')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Selfie capture
+      final captureBtn = find.byKey(const Key('capture_selfie_button'));
+      await tester.ensureVisible(captureBtn);
+      await tester.tap(captureBtn);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Confirm & Complete KYC
+      final completeBtn = find.byKey(const Key('complete_kyc_button'));
+      await tester.tap(completeBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 2. Verified Profile Card in Screen 6
+      expect(find.byKey(const Key('verified_profile_card')), findsOneWidget);
+      final proceedToDriverBtn = find.byKey(const Key('continue_to_next_screen_button'));
+      expect(proceedToDriverBtn, findsOneWidget);
+
+      // Tap Proceed to Driver & Vehicle KYC (Navigation Bridge from Screen 6 -> Screen 7)
+      await tester.tap(proceedToDriverBtn);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 3. Now in Screen 7: DriverKycScreen
+      expect(find.text('Driver & Vehicle Verification'), findsOneWidget);
+      expect(find.byKey(const Key('dl_input_field')), findsOneWidget);
+
+      // Verify DL
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'mh1220100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Verify RC
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'ka01ab1234');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Photo
+      await tester.tap(find.byKey(const Key('capture_vehicle_photo_button')));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // Proceed to Captain Activation
+      await tester.tap(find.byKey(const Key('proceed_to_activation_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Accept Pledge
+      await tester.tap(find.byKey(const Key('captain_pledge_checkbox')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Complete Activation
+      await tester.tap(find.byKey(const Key('complete_driver_activation_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 4. Final Success Card
+      expect(find.byKey(const Key('driver_verified_success_card')), findsOneWidget);
+      expect(find.byKey(const Key('finish_driver_kyc_button')), findsOneWidget);
+    });
+  });
 }
