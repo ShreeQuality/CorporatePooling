@@ -7,7 +7,7 @@ import '../../core/services/driver_kyc_validator.dart';
 import '../../core/services/aadhaar_kyc_validator.dart';
 
 /// Screen 7: Driver License & Vehicle RC KYC Gate
-/// Phase 3: Step 1 Driving License Verification & Sarathi API Gateway
+/// Phase 4: Step 2 Vehicle RC & 3D Glass Vehicle Model via Vahan Gateway
 class DriverKycScreen extends StatefulWidget {
   final AadhaarProfilePayload? verifiedAadhaarProfile;
   final Map<String, dynamic>? previousPayload;
@@ -71,6 +71,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
     ]).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeInOut));
 
     _dlController.addListener(_onDlChanged);
+    _rcController.addListener(_onRcChanged);
   }
 
   void _onDlChanged() {
@@ -89,9 +90,26 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
     });
   }
 
+  void _onRcChanged() {
+    final text = _rcController.text;
+    final formatted = DriverKycValidator.formatVehicleRc(text);
+    if (formatted != text) {
+      _rcController.value = TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
+    }
+    setState(() {
+      if (_rcErrorMessage != null) {
+        _rcErrorMessage = null;
+      }
+    });
+  }
+
   @override
   void dispose() {
     _dlController.removeListener(_onDlChanged);
+    _rcController.removeListener(_onRcChanged);
     _dlController.dispose();
     _rcController.dispose();
     _dlFocusNode.dispose();
@@ -186,6 +204,86 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Verifies Vehicle RC with Simulated Government Vahan Gateway (TC-7.07 & TC-7.08)
+  Future<void> _verifyRcWithVahan() async {
+    final rawRc = _rcController.text.trim();
+    if (!DriverKycValidator.isValidRcFormat(rawRc)) {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _rcErrorMessage = 'Please enter a valid Indian vehicle number plate (e.g. KA 01 AB 1234 or MH 12 CD 5678).';
+      });
+      return;
+    }
+
+    setState(() {
+      _isRcValidating = true;
+      _rcErrorMessage = null;
+    });
+
+    FocusScope.of(context).unfocus();
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    if (!mounted) return;
+
+    final driverAadhaarName = widget.verifiedAadhaarProfile?.fullName ?? 'Rahul Kumar';
+    final rcVehicle = DriverKycValidator.lookupVahanRc(rawRc, compareDriverName: driverAadhaarName);
+
+    if (rcVehicle == null) {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _isRcValidating = false;
+        _rcErrorMessage = 'Vehicle record not found on Govt Vahan database. Please check number plate.';
+      });
+      return;
+    }
+
+    // Commercial Yellow Board Check (TC-7.08)
+    if (rcVehicle.isCommercial) {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _isRcValidating = false;
+        _rcErrorMessage = 'Commercial Taxi Prohibited: Yellow-board commercial vehicles cannot be registered for private peer-to-peer carpools.';
+      });
+      return;
+    }
+
+    // Success: Set RC Record
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isRcValidating = false;
+      _rcRecord = rcVehicle;
+      _rcErrorMessage = null;
+    });
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.directions_car_rounded, color: Color(0xFF00E5FF), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Vehicle Authenticated: ${rcVehicle.make} ${rcVehicle.model} (${rcVehicle.rcNumber})',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF0E1630),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.4)),
         ),
         duration: const Duration(seconds: 2),
       ),
@@ -431,9 +529,9 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _buildStepItem(1, 'License', Icons.badge_rounded, accentColor),
-          _buildStepLine(1 < _currentStep, accentColor),
+          _buildStepLine(1 < _currentStep || _dlRecord != null, accentColor),
           _buildStepItem(2, 'Vehicle RC', Icons.directions_car_filled_rounded, accentColor),
-          _buildStepLine(2 < _currentStep, accentColor),
+          _buildStepLine(2 < _currentStep || _rcRecord != null, accentColor),
           _buildStepItem(3, 'Activation', Icons.check_circle_rounded, accentColor),
         ],
       ),
@@ -441,7 +539,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
   }
 
   Widget _buildStepItem(int stepNum, String title, IconData icon, Color accentColor) {
-    final isDone = stepNum < _currentStep || (stepNum == 1 && _dlRecord != null);
+    final isDone = (stepNum == 1 && _dlRecord != null) || (stepNum == 2 && _rcRecord != null) || stepNum < _currentStep;
     final isCurrent = stepNum == _currentStep;
     final color = isDone
         ? const Color(0xFF00E676)
@@ -451,7 +549,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
 
     return GestureDetector(
       onTap: () {
-        if (stepNum == 1 || (stepNum == 2 && _dlRecord != null)) {
+        if (stepNum == 1 || (stepNum == 2 && _dlRecord != null) || (stepNum == 3 && _dlRecord != null && _rcRecord != null)) {
           setState(() {
             _currentStep = stepNum;
           });
@@ -501,7 +599,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
       case 1:
         return _buildStep1DlVerification(accentColor);
       case 2:
-        return _buildStep2RcPlaceholder(accentColor);
+        return _buildStep2RcVerification(accentColor);
       case 3:
       default:
         return _buildStep3ActivationPlaceholder(accentColor);
@@ -917,28 +1015,428 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
     );
   }
 
-  /// Placeholder for Step 2 (to be completed in Phase 4)
-  Widget _buildStep2RcPlaceholder(Color accentColor) {
+  /// Phase 4: Step 2 Vehicle RC (Vahan Gateway) Verification View
+  Widget _buildStep2RcVerification(Color accentColor) {
+    if (_rcRecord != null) {
+      return _buildVerifiedRcCard(accentColor);
+    }
+
+    final isValidFormat = DriverKycValidator.isValidRcFormat(_rcController.text);
+
+    return AnimatedBuilder(
+      animation: _shakeAnimation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(_shakeAnimation.value, 0),
+          child: child,
+        );
+      },
+      child: Container(
+        key: const Key('driver_kyc_step_content'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: _rcErrorMessage != null
+                ? const Color(0xFFFF5252).withValues(alpha: 0.5)
+                : accentColor.withValues(alpha: 0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (_rcErrorMessage != null ? const Color(0xFFFF5252) : accentColor).withValues(alpha: 0.08),
+              blurRadius: 20,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Row
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: accentColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Icon(Icons.directions_car_filled_rounded, color: accentColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Step 2: Vehicle RC Verification',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        'Government of India (Vahan 4.0 Database)',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+
+            const Text(
+              'Enter Vehicle Number Plate',
+              style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+
+            // RC Text Field (TC-7.06)
+            TextField(
+              key: const Key('rc_input_field'),
+              controller: _rcController,
+              focusNode: _rcFocusNode,
+              textCapitalization: TextCapitalization.characters,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                letterSpacing: 2.0,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+              ),
+              decoration: InputDecoration(
+                hintText: 'KA 01 AB 1234',
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  fontSize: 15,
+                  letterSpacing: 1.5,
+                  fontFamily: 'monospace',
+                ),
+                prefixIcon: const Icon(Icons.pin_rounded, color: Color(0xFF00E5FF), size: 20),
+                suffixIcon: _rcController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.cancel_rounded, color: Colors.white38, size: 18),
+                        onPressed: () {
+                          _rcController.clear();
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.04),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Color(0xFF00E5FF), width: 2),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(
+                    color: isValidFormat ? const Color(0xFF00E676) : Colors.white.withValues(alpha: 0.12),
+                    width: isValidFormat ? 1.5 : 1.0,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Live Format Status Chip
+            Row(
+              children: [
+                Icon(
+                  isValidFormat ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                  color: isValidFormat ? const Color(0xFF00E676) : Colors.white38,
+                  size: 14,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    isValidFormat ? 'Valid Indian Plate (Vahan Gateway Ready)' : 'Format: State RTO Series Number (e.g. KA 01 AB 1234)',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isValidFormat ? const Color(0xFF00E676) : Colors.white38,
+                      fontSize: 11.5,
+                      fontWeight: isValidFormat ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Error Banner (TC-7.08)
+            if (_rcErrorMessage != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                key: const Key('rc_error_banner'),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF5252).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Color(0xFFFF5252), size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _rcErrorMessage!,
+                        style: const TextStyle(
+                          color: Color(0xFFFF8A80),
+                          fontSize: 12.5,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 20),
+
+            // Verify with Vahan Action Button (TC-7.07)
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                key: const Key('verify_vahan_button'),
+                onPressed: _isRcValidating ? null : _verifyRcWithVahan,
+                icon: _isRcValidating
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF050814),
+                        ),
+                      )
+                    : const Icon(Icons.search_rounded, size: 18),
+                label: Text(
+                  _isRcValidating ? 'Fetching from Vahan Portal...' : 'Fetch Vehicle from Vahan Portal',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14.5,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: const Color(0xFF050814),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 6,
+                  shadowColor: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Phase 4: Extracted 3D Glassmorphic Verified Vehicle Card (TC-7.07)
+  Widget _buildVerifiedRcCard(Color accentColor) {
+    final rc = _rcRecord!;
     return Container(
-      key: const Key('driver_kyc_step_content'),
+      key: const Key('verified_rc_card'),
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: const Color(0xFF0E1A38).withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: accentColor.withValues(alpha: 0.3)),
+        border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.5), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E676).withValues(alpha: 0.12),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Step 2: Vehicle Registration Certificate (RC)',
-            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF00E676),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.check_rounded, color: Color(0xFF050814), size: 14),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Vehicle Authenticated (Vahan 4.0)',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Color(0xFF00E676),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_rounded, color: Colors.white70, size: 18),
+                tooltip: 'Edit Vehicle RC',
+                onPressed: () {
+                  setState(() {
+                    _rcRecord = null;
+                  });
+                },
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
+          const Divider(color: Colors.white12, height: 20),
+
+          // Vehicle Model & Color
           Text(
-            'Step 1 DL verified. Ready for Step 2 Vahan RC integration in Phase 4.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
+            '${rc.make} ${rc.model} • ${rc.color}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // Number Plate Badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Text(
+              rc.rcNumber,
+              style: const TextStyle(
+                color: Color(0xFF00E5FF),
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.5,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Specs Grid (Fuel & Seats)
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  rc.fuelType == 'EV'
+                      ? '⚡ 100% Electric (EV)'
+                      : '⛽ ${rc.fuelType}',
+                  style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Text(
+                  '👥 ${rc.seatingCapacity} Seater (${rc.seatingCapacity - 1} Pool Seats)',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Registered Owner
+          Row(
+            children: [
+              const Icon(Icons.person_pin_rounded, color: Colors.white60, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Registered Owner: ${rc.ownerName}',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Safety Dates (Insurance & PUC)
+          Row(
+            children: [
+              const Icon(Icons.security_rounded, color: Color(0xFF00E676), size: 15),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Insurance till ${rc.insuranceExpiryDate} • PUC till ${rc.pucExpiryDate}',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Proceed to Step 3 Button
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              key: const Key('proceed_to_step_3_button'),
+              onPressed: () {
+                HapticFeedback.mediumImpact();
+                setState(() {
+                  _currentStep = 3;
+                });
+              },
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text(
+                'Proceed to Step 3: Safety & Photo',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14.5,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: const Color(0xFF050814),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 6,
+                shadowColor: const Color(0xFF00E676).withValues(alpha: 0.4),
+              ),
+            ),
           ),
         ],
       ),
@@ -964,7 +1462,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
           ),
           const SizedBox(height: 10),
           Text(
-            'Ready for Step 3 Photo capture in Phase 6.',
+            'Ready for Step 3 Photo capture & Safety Cross-Validation in Phase 5 & 6.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
           ),
