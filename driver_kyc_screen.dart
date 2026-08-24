@@ -367,8 +367,15 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
   Widget build(BuildContext context) {
     const primaryCyan = Color(0xFF00E5FF);
 
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldPop = await _onWillPop();
+        if (shouldPop && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
       child: Scaffold(
         backgroundColor: const Color(0xFF050814),
         body: Stack(
