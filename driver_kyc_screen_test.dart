@@ -131,6 +131,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
 
       expect(isSkippedCalled, true);
+      expect(dispatchedPayload, isNotNull);
+      expect(dispatchedPayload!['is_driver'], false);
+      expect(dispatchedPayload!['is_skipped'], true);
     });
 
     testWidgets('Back button taps open Cancel Confirmation Dialog and handles dismissal', (tester) async {

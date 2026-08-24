@@ -45,7 +45,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
   // States
   bool _isDlValidating = false;
   bool _isRcValidating = false;
-  bool _isOwnerAuthDeclared = false;
+  final bool _isOwnerAuthDeclared = false;
   bool _isCaptainPledgeAccepted = false;
   bool _isCaptainActive = false;
   bool _isShowingPledgeModal = false;
@@ -399,11 +399,9 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
       'status': 'rider_active',
     };
 
-    if (widget.onSkip != null) {
-      widget.onSkip!();
-    } else if (widget.onDriverKycSuccess != null) {
-      widget.onDriverKycSuccess!(skipPayload);
-    } else {
+    widget.onSkip?.call();
+    widget.onDriverKycSuccess?.call(skipPayload);
+    if (widget.onSkip == null && widget.onDriverKycSuccess == null) {
       Navigator.of(context).pushReplacementNamed('/home', arguments: skipPayload);
     }
   }
