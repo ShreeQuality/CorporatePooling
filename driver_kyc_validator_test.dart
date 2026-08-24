@@ -82,10 +82,10 @@ void main() {
       expect(mismatchResult.blockReason, contains('DL Name'));
     });
 
-    test('TC-7.08, TC-7.09 & TC-7.10: Commercial, Insurance & PUC Blocks', () {
+    test('TC-7.08, TC-7.09 & TC-7.10: Commercial Rejection vs Non-blocking Insurance & PUC Warnings', () {
       final validDl = DriverKycValidator.lookupSarathiDl('MH12 20100012345')!;
       
-      // Commercial check (TC-7.08)
+      // Commercial check (Hard Block)
       final commercialRc = DriverKycValidator.lookupVahanRc('MH 01 TC 0001')!;
       final commercialResult = DriverKycValidator.validateSafetyAndCompatibility(
         dl: validDl,
@@ -94,28 +94,29 @@ void main() {
       );
       expect(commercialResult.isFullyApproved, false);
       expect(commercialResult.isCommercialBlocked, true);
+      expect(commercialResult.blockReason, contains('Commercial'));
 
-      // Expired Insurance check (TC-7.09)
+      // Expired Insurance check (TC-7.09: Non-blocking warning)
       final expiredInsRc = DriverKycValidator.lookupVahanRc('DL 3C AB 9999')!;
       final insResult = DriverKycValidator.validateSafetyAndCompatibility(
         dl: validDl,
         rc: expiredInsRc,
         driverAadhaarName: 'Rahul Kumar',
       );
-      expect(insResult.isFullyApproved, false);
+      expect(insResult.isFullyApproved, true); // ALLOWED to proceed
       expect(insResult.isInsuranceValid, false);
-      expect(insResult.blockReason, contains('Insurance expired'));
+      expect(insResult.warningReason, contains('Insurance expired'));
 
-      // Expired PUC check (TC-7.10)
+      // Expired PUC check (TC-7.09: Non-blocking warning)
       final expiredPucRc = DriverKycValidator.lookupVahanRc('KA 02 MN 8888')!;
       final pucResult = DriverKycValidator.validateSafetyAndCompatibility(
         dl: validDl,
         rc: expiredPucRc,
         driverAadhaarName: 'Rahul Kumar',
       );
-      expect(pucResult.isFullyApproved, false);
+      expect(pucResult.isFullyApproved, true); // ALLOWED to proceed
       expect(pucResult.isPucValid, false);
-      expect(pucResult.blockReason, contains('PUC certificate expired'));
+      expect(pucResult.warningReason, contains('PUC expired'));
     });
 
     test('TC-7.11: DL Class vs RC Type Compatibility (Bike DL with Car RC)', () {
@@ -132,29 +133,18 @@ void main() {
       expect(classMismatchResult.blockReason, contains('does not permit driving'));
     });
 
-    test('TC-7.12, TC-7.13 & TC-7.14: RC Owner Mismatch & Declaration Physics', () {
+    test('TC-7.10: RC Owner Mismatch is Non-Blocking Informational Note', () {
       final validDl = DriverKycValidator.lookupSarathiDl('MH12 20100012345')!;
       final parentCarRc = DriverKycValidator.lookupVahanRc('MH 12 AB 1234')!; // Owner: Rajesh Kumar (Parent)
 
-      // Unchecked declaration -> blocked (TC-7.14)
-      final blockedResult = DriverKycValidator.validateSafetyAndCompatibility(
+      final mismatchResult = DriverKycValidator.validateSafetyAndCompatibility(
         dl: validDl,
         rc: parentCarRc,
         driverAadhaarName: 'Rahul Kumar',
-        isOwnerAuthorizationDeclared: false,
       );
-      expect(blockedResult.isFullyApproved, false);
-      expect(blockedResult.isOwnerMismatch, true);
-
-      // Checked declaration -> approved (TC-7.13)
-      final approvedResult = DriverKycValidator.validateSafetyAndCompatibility(
-        dl: validDl,
-        rc: parentCarRc,
-        driverAadhaarName: 'Rahul Kumar',
-        isOwnerAuthorizationDeclared: true,
-      );
-      expect(approvedResult.isFullyApproved, true);
-      expect(approvedResult.isOwnerMismatch, true);
+      expect(mismatchResult.isFullyApproved, true); // ALLOWED to proceed without blocks
+      expect(mismatchResult.isOwnerMismatch, true);
+      expect(mismatchResult.warningReason, contains('Vehicle registered under'));
     });
 
     test('100% Valid Driver & Self-Owned Vehicle Approval', () {

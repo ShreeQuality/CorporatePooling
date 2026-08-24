@@ -107,6 +107,7 @@ class DriverSafetyValidationResult {
   final bool isOwnerMismatch;
   final bool isCommercialBlocked;
   final String? blockReason;
+  final String? warningReason;
 
   const DriverSafetyValidationResult({
     required this.isFullyApproved,
@@ -119,6 +120,7 @@ class DriverSafetyValidationResult {
     required this.isOwnerMismatch,
     this.isCommercialBlocked = false,
     this.blockReason,
+    this.warningReason,
   });
 }
 
@@ -390,7 +392,7 @@ class DriverKycValidator {
     required String driverAadhaarName,
     bool isOwnerAuthorizationDeclared = false,
   }) {
-    // 1. DL Expiry Check
+    // 1. DL Expiry Check (Hard Block)
     if (dl.isExpired) {
       return DriverSafetyValidationResult(
         isFullyApproved: false,
@@ -405,7 +407,7 @@ class DriverKycValidator {
       );
     }
 
-    // 2. DL Name vs Aadhaar Name Match
+    // 2. DL Name vs Aadhaar Name Match (Hard Block)
     final nameMatches = isNameMatched(dl.holderName, driverAadhaarName);
     if (!nameMatches) {
       return DriverSafetyValidationResult(
@@ -421,7 +423,7 @@ class DriverKycValidator {
       );
     }
 
-    // 3. Commercial Board Check
+    // 3. Commercial Board Check (Hard Block)
     if (rc.isCommercial) {
       return const DriverSafetyValidationResult(
         isFullyApproved: false,
@@ -437,37 +439,7 @@ class DriverKycValidator {
       );
     }
 
-    // 4. Insurance Expiry Check
-    if (rc.isInsuranceExpired) {
-      return DriverSafetyValidationResult(
-        isFullyApproved: false,
-        isDlValid: true,
-        isRcValid: false,
-        isInsuranceValid: false,
-        isPucValid: !rc.isPucExpired,
-        isClassCompatible: true,
-        isNameMatched: true,
-        isOwnerMismatch: false,
-        blockReason: 'Vehicle Insurance expired on ${rc.insuranceExpiryDate}. Cannot register.',
-      );
-    }
-
-    // 5. PUC Expiry Check
-    if (rc.isPucExpired) {
-      return DriverSafetyValidationResult(
-        isFullyApproved: false,
-        isDlValid: true,
-        isRcValid: false,
-        isInsuranceValid: true,
-        isPucValid: false,
-        isClassCompatible: true,
-        isNameMatched: true,
-        isOwnerMismatch: false,
-        blockReason: 'Vehicle PUC certificate expired on ${rc.pucExpiryDate}. Cannot register.',
-      );
-    }
-
-    // 6. DL Class vs RC Vehicle Type Compatibility
+    // 4. DL Class vs RC Vehicle Type Compatibility (Hard Block)
     bool classMatches = true;
     if (rc.vehicleType == VehicleType.car) {
       if (dl.vehicleClass != DlVehicleClass.lmv && dl.vehicleClass != DlVehicleClass.both) {
@@ -484,8 +456,8 @@ class DriverKycValidator {
         isFullyApproved: false,
         isDlValid: true,
         isRcValid: true,
-        isInsuranceValid: true,
-        isPucValid: true,
+        isInsuranceValid: !rc.isInsuranceExpired,
+        isPucValid: !rc.isPucExpired,
         isClassCompatible: false,
         isNameMatched: true,
         isOwnerMismatch: false,
@@ -493,34 +465,38 @@ class DriverKycValidator {
       );
     }
 
-    // 7. RC Owner Name vs Driver Name (Check if authorization is needed)
+    // 5. RC Owner Name vs Driver Name (Informational - Non-Blocking)
     final isOwnerSame = isNameMatched(rc.ownerName, driverAadhaarName);
     final bool isOwnerMismatch = !isOwnerSame;
 
-    if (isOwnerMismatch && !isOwnerAuthorizationDeclared) {
-      return const DriverSafetyValidationResult(
-        isFullyApproved: false,
-        isDlValid: true,
-        isRcValid: true,
-        isInsuranceValid: true,
-        isPucValid: true,
-        isClassCompatible: true,
-        isNameMatched: true,
-        isOwnerMismatch: true,
-        blockReason: 'Owner authorization declaration required for vehicle registered under different owner.',
-      );
+    // 6. Insurance & PUC Expiry (Informational Warnings - Non-Blocking)
+    final isInsuranceValid = !rc.isInsuranceExpired;
+    final isPucValid = !rc.isPucExpired;
+
+    final warningList = <String>[];
+    if (!isInsuranceValid) {
+      warningList.add('Insurance expired on ${rc.insuranceExpiryDate}');
+    }
+    if (!isPucValid) {
+      warningList.add('PUC expired on ${rc.pucExpiryDate}');
+    }
+    if (isOwnerMismatch) {
+      warningList.add('Vehicle registered under ${rc.ownerName}');
     }
 
-    // Fully Approved
+    final String? warningReason = warningList.isNotEmpty ? warningList.join('. ') : null;
+
+    // Fully Approved (Non-blocking for Insurance, PUC, and Owner Mismatch)
     return DriverSafetyValidationResult(
       isFullyApproved: true,
       isDlValid: true,
       isRcValid: true,
-      isInsuranceValid: true,
-      isPucValid: true,
+      isInsuranceValid: isInsuranceValid,
+      isPucValid: isPucValid,
       isClassCompatible: true,
       isNameMatched: true,
       isOwnerMismatch: isOwnerMismatch,
+      warningReason: warningReason,
     );
   }
 }
