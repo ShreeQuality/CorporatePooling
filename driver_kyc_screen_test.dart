@@ -608,7 +608,7 @@ void main() {
 
       // 4. Photo verified preview
       expect(find.text('Photo AI Verified ✓'), findsOneWidget);
-      expect(find.text('Proceed to Captain Activation'), findsOneWidget);
+      expect(find.text('Complete & Go to Dashboard'), findsOneWidget);
 
       // 5. Retake photo
       final retakeBtn = find.byKey(const Key('retake_vehicle_photo_button'));
@@ -767,6 +767,9 @@ void main() {
       expect(receivedPayload!['pool_capacity'], 4);
       expect(receivedPayload!['is_captain_pledge_accepted'], true);
       expect(receivedPayload!['is_driver_kyc_complete'], true);
+      expect(receivedPayload!['is_driver'], true);
+      expect(receivedPayload!['vehicles'], isNotNull);
+      expect(receivedPayload!['vehicles']['make'], 'Hyundai');
     });
   });
 

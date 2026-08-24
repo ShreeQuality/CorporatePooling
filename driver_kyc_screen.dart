@@ -2031,7 +2031,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
           ),
           const SizedBox(height: 20),
 
-          // Proceed to Activation Button
+          // Proceed to Activation / Complete Profile Button (TC-7.13 & TC-7.14)
           SizedBox(
             width: double.infinity,
             height: 50,
@@ -2051,7 +2051,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                     ? 'Resolve Compliance Issues Above'
                     : (_capturedVehiclePhotoPath == null)
                         ? 'Capture Photo to Proceed'
-                        : 'Proceed to Captain Activation',
+                        : 'Complete & Go to Dashboard',
                 style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
               ),
               style: ElevatedButton.styleFrom(
@@ -2344,7 +2344,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
             _buildSuccessMetaRow('AADHAAR UID', widget.verifiedAadhaarProfile!.maskedAadhaar),
           const SizedBox(height: 20),
 
-          // Finish / Proceed to Dashboard Button (TC-7.23)
+          // Finish / Proceed to Dashboard Button (TC-7.14)
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -2354,6 +2354,8 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                 HapticFeedback.heavyImpact();
                 final finalPayload = {
                   if (widget.previousPayload != null) ...widget.previousPayload!,
+                  'is_driver': true,
+                  'is_driver_kyc_complete': true,
                   'driver_name': driverName,
                   'dl_number': dl.dlNumber,
                   'dl_class': dl.vehicleClass.name.toUpperCase(),
@@ -2369,8 +2371,16 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                   'is_owner_matched': DriverKycValidator.isNameMatched(rc.ownerName, driverName),
                   'vehicle_photo_url': _capturedVehiclePhotoPath ?? '',
                   'is_captain_pledge_accepted': true,
-                  'is_driver_kyc_complete': true,
                   'activated_timestamp': DateTime.now().toIso8601String(),
+                  'vehicles': {
+                    'rc_number': rc.rcNumber,
+                    'make': rc.make,
+                    'model': rc.model,
+                    'color': rc.color,
+                    'fuel_type': rc.fuelType,
+                    'seating_capacity': rc.seatingCapacity,
+                    'photo_url': _capturedVehiclePhotoPath ?? '',
+                  },
                 };
 
                 widget.onDriverKycSuccess?.call(finalPayload);
