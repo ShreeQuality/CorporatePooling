@@ -256,6 +256,35 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
             height: 1.4,
           ),
         ),
+        if (widget.verifiedAadhaarProfile != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E676).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.verified_user_rounded, color: Color(0xFF00E676), size: 16),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Verified Citizen: ${widget.verifiedAadhaarProfile!.fullName} • UID: ${widget.verifiedAadhaarProfile!.maskedAadhaar}',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
