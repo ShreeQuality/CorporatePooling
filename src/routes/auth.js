@@ -20,6 +20,7 @@ router.post('/login',              ctrl.login);
 
 // Protected endpoints
 router.get('/me',                       requireAuth, ctrl.getMe);
+router.patch('/profile',                requireAuth, ctrl.updateProfile);
 router.post('/upload-document',         requireAuth, upload.single('file'), handleUploadError, ctrl.uploadDocument);
 router.patch('/emergency-contacts',     requireAuth, ctrl.updateEmergencyContacts);
 

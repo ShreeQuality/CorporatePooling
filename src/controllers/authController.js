@@ -514,6 +514,40 @@ async function verifyPhoneOtp(req, res) {
   }
 }
 
+// 🔸🔸🔸 Update User Profile (Aadhaar Data) 🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸
+/**
+ * PATCH /api/v1/auth/profile
+ * Body: { full_name, date_of_birth, gender, home_city, selfie_photo_url }
+ */
+async function updateProfile(req, res) {
+  try {
+    const userId = req.user.id;
+    const { full_name, date_of_birth, gender, home_city, selfie_photo_url } = req.body;
+
+    const updates = {};
+    if (full_name !== undefined) updates.full_name = full_name;
+    if (date_of_birth !== undefined) updates.date_of_birth = date_of_birth;
+    if (gender !== undefined) updates.gender = gender;
+    if (home_city !== undefined) updates.home_city = home_city;
+    if (selfie_photo_url !== undefined) updates.selfie_photo_url = selfie_photo_url;
+    
+    updates.updated_at = new Date().toISOString();
+
+    const { data: updatedUser, error } = await supabaseAdmin
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (error) return serverError(res, error, 'Failed to update profile.');
+
+    return ok(res, updatedUser, 'Profile updated successfully.');
+  } catch (err) {
+    return serverError(res, err);
+  }
+}
+
 // 🔸🔸🔸 B2B Employee-Led HR Invite 🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸
 /**
  * POST /api/v1/auth/invite-hr
@@ -527,9 +561,12 @@ async function inviteHR(req, res) {
       return badRequest(res, 'hr_email and company_domain are required.');
     }
 
+    // Trial days can be configured by Super Admin in the .env file (defaulting to 30 if not set)
+    const trialDays = process.env.B2B_TRIAL_DAYS || 30;
+
     // In a real app, this would use nodemailer or SendGrid to dispatch the B2B email
     console.log(`\n[B2B LEAD GENERATED] 🚀`);
-    console.log(`Action: Sending 90-Day Free Trial Invite to ${hr_email}`);
+    console.log(`Action: Sending ${trialDays}-Day Free Trial Invite to ${hr_email}`);
     console.log(`Requested by: ${requested_by_email || 'Anonymous Employee'}`);
     console.log(`Domain: ${company_domain}`);
 
@@ -552,6 +589,7 @@ module.exports = {
   updateEmergencyContacts,
   requestPhoneOtp,
   verifyPhoneOtp,
+  updateProfile,
   inviteHR,
 };
 
