@@ -12,12 +12,14 @@ class DriverKycScreen extends StatefulWidget {
   final AadhaarProfilePayload? verifiedAadhaarProfile;
   final Map<String, dynamic>? previousPayload;
   final Function(Map<String, dynamic> driverData)? onDriverKycSuccess;
+  final VoidCallback? onSkip;
 
   const DriverKycScreen({
     super.key,
     this.verifiedAadhaarProfile,
     this.previousPayload,
     this.onDriverKycSuccess,
+    this.onSkip,
   });
 
   @override
@@ -320,6 +322,92 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
     await _verifyRcWithVahan();
   }
 
+  /// Skip Vehicle Setup Confirmation Dialog (TC-7.02 & TC-7.03)
+  Future<void> _showSkipConfirmationDialog() async {
+    final shouldSkip = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        key: const Key('skip_kyc_dialog'),
+        backgroundColor: const Color(0xFF0F1424),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(
+            color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+            width: 1.2,
+          ),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.directions_car_outlined, color: Color(0xFF00E5FF), size: 24),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Skip Vehicle Setup?',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'You can always add your car/bike later from your dashboard to start offering rides as a Captain. You will proceed as a Rider.',
+          style: TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.45),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        actions: [
+          TextButton(
+            key: const Key('continue_setup_button'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Continue Setup',
+              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+            ),
+          ),
+          ElevatedButton(
+            key: const Key('confirm_skip_button'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E5FF),
+              foregroundColor: const Color(0xFF050814),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Skip to Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
+                SizedBox(width: 4),
+                Icon(Icons.arrow_forward_rounded, size: 16),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSkip == true && mounted) {
+      _handleSkipToDashboard();
+    }
+  }
+
+  void _handleSkipToDashboard() {
+    final Map<String, dynamic> skipPayload = {
+      if (widget.previousPayload != null) ...widget.previousPayload!,
+      if (widget.verifiedAadhaarProfile != null) ...widget.verifiedAadhaarProfile!.toMap(),
+      'is_driver': false,
+      'is_skipped': true,
+      'status': 'rider_active',
+    };
+
+    if (widget.onSkip != null) {
+      widget.onSkip!();
+    } else if (widget.onDriverKycSuccess != null) {
+      widget.onDriverKycSuccess!(skipPayload);
+    } else {
+      Navigator.of(context).pushReplacementNamed('/home', arguments: skipPayload);
+    }
+  }
+
   /// System Back / Cancel Safety Confirmation Dialog (TC-7.02)
   Future<bool> _onWillPop() async {
     final shouldPop = await showDialog<bool>(
@@ -464,7 +552,37 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
               ],
             ),
           ),
-          const SizedBox(width: 40),
+          TextButton(
+            key: const Key('skip_driver_kyc_button'),
+            onPressed: _showSkipConfirmationDialog,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              visualDensity: VisualDensity.compact,
+              backgroundColor: Colors.white.withValues(alpha: 0.06),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.15),
+                ),
+              ),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Skip',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                SizedBox(width: 2),
+                Icon(Icons.arrow_forward_ios_rounded, color: Colors.white70, size: 11),
+              ],
+            ),
+          ),
         ],
       ),
     );

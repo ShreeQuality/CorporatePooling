@@ -62,7 +62,78 @@ void main() {
       expect(find.byKey(const Key('dl_input_field')), findsOneWidget);
     });
 
-    testWidgets('TC-7.02: Back button taps open Cancel Confirmation Dialog and handles dismissal', (tester) async {
+    testWidgets('TC-7.02: Tap Skip button opens Skip Confirmation Dialog and handles Continue Setup', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Verify Skip button exists in top bar
+      final skipBtn = find.byKey(const Key('skip_driver_kyc_button'));
+      expect(skipBtn, findsOneWidget);
+
+      // 2. Tap Skip button
+      await tester.tap(skipBtn);
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 3. Verify Skip Dialog opens
+      expect(find.byKey(const Key('skip_kyc_dialog')), findsOneWidget);
+      expect(find.text('Skip Vehicle Setup?'), findsOneWidget);
+      expect(find.textContaining('You can always add your car/bike later'), findsOneWidget);
+      expect(find.byKey(const Key('continue_setup_button')), findsOneWidget);
+      expect(find.byKey(const Key('confirm_skip_button')), findsOneWidget);
+
+      // 4. Tap Continue Setup -> Dialog dismissed, stays on Screen 7
+      await tester.tap(find.byKey(const Key('continue_setup_button')));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.byKey(const Key('skip_kyc_dialog')), findsNothing);
+      expect(find.text('Driver & Vehicle Verification'), findsOneWidget);
+    });
+
+    testWidgets('TC-7.03: Confirm Skip dispatches rider payload and routes to Dashboard', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Map<String, dynamic>? dispatchedPayload;
+      bool isSkippedCalled = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DriverKycScreen(
+            verifiedAadhaarProfile: mockAadhaar,
+            previousPayload: const {
+              'phone': '9876543210',
+              'workEmail': 'rahul.kumar@infosys.com',
+            },
+            onDriverKycSuccess: (payload) {
+              dispatchedPayload = payload;
+            },
+            onSkip: () {
+              isSkippedCalled = true;
+            },
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Tap Skip button
+      await tester.tap(find.byKey(const Key('skip_driver_kyc_button')));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // Tap Confirm Skip to Dashboard
+      await tester.tap(find.byKey(const Key('confirm_skip_button')));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(isSkippedCalled, true);
+    });
+
+    testWidgets('Back button taps open Cancel Confirmation Dialog and handles dismissal', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -424,10 +495,10 @@ void main() {
       await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
       await tester.pump(const Duration(milliseconds: 300));
 
-      // 5. Verify Insurance Expired Banner
+      // 5. Verify Insurance Expired Warning Banner is shown, but user is ALLOWED to proceed (TC-7.09)
       expect(find.byKey(const Key('insurance_expired_banner')), findsOneWidget);
       expect(find.textContaining('Insurance Expired on'), findsOneWidget);
-      expect(find.text('Resolve Compliance Issues Above'), findsOneWidget);
+      expect(find.text('Capture Photo to Proceed'), findsOneWidget);
     });
 
     testWidgets('TC-7.11: Expired PUC displays warning advisory banner', (tester) async {
@@ -459,12 +530,13 @@ void main() {
       await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
       await tester.pump(const Duration(milliseconds: 300));
 
-      // 5. Verify PUC Warning Banner
+      // 5. Verify PUC Warning Banner is shown, but user is ALLOWED to proceed (TC-7.09)
       expect(find.byKey(const Key('puc_warning_banner')), findsOneWidget);
       expect(find.textContaining('PUC Expired on'), findsOneWidget);
+      expect(find.text('Capture Photo to Proceed'), findsOneWidget);
     });
 
-    testWidgets('TC-7.12 & TC-7.13: Family/Parent Owner requires owner_auth_checkbox consent', (tester) async {
+    testWidgets('TC-7.10: Family/Parent Owner displays info note and ALLOWS user to proceed', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -488,21 +560,14 @@ void main() {
       await tester.tap(find.byKey(const Key('verify_vahan_button')));
       await tester.pump(const Duration(milliseconds: 700));
 
-      // 3. Step 3: Check Family Owner card
+      // 3. Step 3: Check Family Owner info card
       await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.byKey(const Key('family_owner_card')), findsOneWidget);
       expect(find.textContaining('Owner Mismatch: Rajesh Kumar (Parent)'), findsOneWidget);
 
-      // Checkbox is unchecked initially -> Activation blocked
-      expect(find.text('Resolve Compliance Issues Above'), findsOneWidget);
-
-      // Tap Checkbox to declare consent
-      await tester.tap(find.byKey(const Key('owner_auth_checkbox')));
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // Now compliance passes, prompts for Photo
+      // Non-blocking: Prompts for Photo right away (TC-7.10)
       expect(find.text('Capture Photo to Proceed'), findsOneWidget);
     });
 
