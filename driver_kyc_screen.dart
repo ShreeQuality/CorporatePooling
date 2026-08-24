@@ -1802,26 +1802,26 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                   ),
                 ],
 
-                // Insurance Check (TC-7.10)
+                // Insurance Check (TC-7.09: Informative Warning, Non-Blocking)
                 if (!safety.isInsuranceValid) ...[
                   Container(
                     key: const Key('insurance_expired_banner'),
                     padding: const EdgeInsets.all(10),
                     margin: const EdgeInsets.symmetric(vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFF5252).withValues(alpha: 0.12),
+                      color: const Color(0xFFFFB300).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.4)),
+                      border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.4)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.security_update_warning_rounded, color: Color(0xFFFF5252), size: 16),
+                        const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFB300), size: 16),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Insurance Expired on ${_rcRecord!.insuranceExpiryDate}. Valid insurance is legally required to carpool.',
-                            style: const TextStyle(color: Color(0xFFFF8A80), fontSize: 12, fontWeight: FontWeight.w600),
+                            'Insurance Expired on ${_rcRecord!.insuranceExpiryDate}. Allowed to proceed, but please renew soon.',
+                            style: const TextStyle(color: Color(0xFFFFE082), fontSize: 12, fontWeight: FontWeight.w600),
                           ),
                         ),
                       ],
@@ -1836,7 +1836,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                   ),
                 ],
 
-                // PUC Check (TC-7.11)
+                // PUC Check (TC-7.09: Informative Warning, Non-Blocking)
                 if (_rcRecord!.isPucExpired) ...[
                   Container(
                     key: const Key('puc_warning_banner'),
@@ -1870,7 +1870,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                   ),
                 ],
 
-                // Ownership Check (TC-7.12 & TC-7.13)
+                // Ownership Check (TC-7.10: Informational Note, Non-Blocking)
                 if (!safety.isOwnerMismatch) ...[
                   _buildComplianceRow(
                     Icons.person_rounded,
@@ -1888,59 +1888,24 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.3)),
                     ),
-                    child: Column(
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.family_restroom_rounded, color: Color(0xFF00E5FF), size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
+                        const Icon(Icons.family_restroom_rounded, color: Color(0xFF00E5FF), size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
                                 'Owner Mismatch: ${_rcRecord!.ownerName}',
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'If this vehicle is registered under a family member or company, declare explicit owner consent below.',
-                          style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.3),
-                        ),
-                        const SizedBox(height: 8),
-                        GestureDetector(
-                          key: const Key('owner_auth_checkbox'),
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() {
-                              _isOwnerAuthDeclared = !_isOwnerAuthDeclared;
-                            });
-                          },
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 22,
-                                height: 22,
-                                decoration: BoxDecoration(
-                                  color: _isOwnerAuthDeclared ? const Color(0xFF00E676) : Colors.white.withValues(alpha: 0.05),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(
-                                    color: _isOwnerAuthDeclared ? const Color(0xFF00E676) : Colors.white38,
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: _isOwnerAuthDeclared
-                                    ? const Icon(Icons.check_rounded, color: Color(0xFF050814), size: 16)
-                                    : null,
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'I declare I have explicit consent from the vehicle owner to pool this vehicle.',
-                                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                                ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Vehicle registered to family/spouse. You are allowed to carpool with this vehicle.',
+                                style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.3),
                               ),
                             ],
                           ),
