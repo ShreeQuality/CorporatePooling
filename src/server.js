@@ -18,6 +18,7 @@ const requestRoutes       = require('./routes/requests');
 const walletRoutes        = require('./routes/wallet');
 const adminRoutes         = require('./routes/admin');
 const notificationRoutes  = require('./routes/notifications');
+const kycRoutes           = require('./routes/kyc');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -58,6 +59,7 @@ app.use(`${BASE}/auth`, authLimiter);
 
 // ─── Routes ───────────────────────────────────────────────────
 app.use(`${BASE}/auth`,           authRoutes);
+app.use(`${BASE}/kyc`,            kycRoutes);
 app.use(`${BASE}/rides`,          rideRoutes);
 app.use(`${BASE}`,                requestRoutes);   // /requests/my, /rides/:id/request, etc.
 app.use(`${BASE}/wallet`,         walletRoutes);
