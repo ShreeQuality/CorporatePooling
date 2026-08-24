@@ -94,12 +94,12 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      final testPrefix11 = '23456789012';
+      const testPrefix11 = '23456789012';
       final checkDigit12 = AadhaarKycValidator.generateVerhoeffCheckDigit(testPrefix11);
       final validAadhaar12 = '$testPrefix11$checkDigit12';
 
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: AadhaarKycScreen(
             previousPayload: {
               'phone': '9876543210',
@@ -754,9 +754,9 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: AadhaarKycScreen(
-            previousPayload: const {
+            previousPayload: {
               'phone': '+91 9876543210',
               'work_email': 'rahul.kumar@google.com',
               'company_name': 'Google India',
