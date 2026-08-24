@@ -11,6 +11,7 @@ const { upload, handleUploadError } = require('../middleware/upload');
 // Public endpoints
 router.post('/register-corporate', ctrl.registerCorporate);
 router.post('/register-public',    ctrl.registerPublic);
+router.post('/invite-hr',          ctrl.inviteHR);
 router.post('/request-otp',        ctrl.requestPhoneOtp);
 router.post('/verify-otp',         ctrl.verifyOtp);
 router.post('/verify-phone-otp',   ctrl.verifyPhoneOtp);

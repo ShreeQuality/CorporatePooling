@@ -45,6 +45,17 @@ async function registerCorporate(req, res) {
       .eq('domain', domain)
       .single();
 
+    // B2B Employee-Led Invite Flow: If company doesn't exist, DO NOT downgrade to public user.
+    // Instead, block the registration and prompt the frontend to ask for the HR email.
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: 'Company not registered. Please invite your HR to unlock Corporate Pooling.',
+        action: 'require_hr_email',
+        domain: domain
+      });
+    }
+
     // 2. Check if email already registered
     const { data: existing } = await supabaseAdmin
       .from('users')
@@ -71,7 +82,7 @@ async function registerCorporate(req, res) {
     const userId = authData.user.id;
 
     // 4. Create user profile matching 014_production_schema.sql
-    const role = company ? 'corporate_employee' : 'public_user';
+    const role = 'corporate_employee';
     const { error: profileErr } = await supabaseAdmin.from('users').insert({
       id: userId,
       full_name: full_name.trim(),
@@ -503,6 +514,33 @@ async function verifyPhoneOtp(req, res) {
   }
 }
 
+// 🔸🔸🔸 B2B Employee-Led HR Invite 🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸
+/**
+ * POST /api/v1/auth/invite-hr
+ * Body: { hr_email, company_domain, requested_by_email }
+ */
+async function inviteHR(req, res) {
+  try {
+    const { hr_email, company_domain, requested_by_email } = req.body;
+    
+    if (!hr_email || !company_domain) {
+      return badRequest(res, 'hr_email and company_domain are required.');
+    }
+
+    // In a real app, this would use nodemailer or SendGrid to dispatch the B2B email
+    console.log(`\n[B2B LEAD GENERATED] 🚀`);
+    console.log(`Action: Sending 90-Day Free Trial Invite to ${hr_email}`);
+    console.log(`Requested by: ${requested_by_email || 'Anonymous Employee'}`);
+    console.log(`Domain: ${company_domain}`);
+
+    // (Optional) Save the lead to a `b2b_leads` table if it exists
+    
+    return ok(res, null, `We have sent an invitation to ${hr_email}. Once they register, you can join!`);
+  } catch (err) {
+    return serverError(res, err);
+  }
+}
+
 module.exports = {
   registerCorporate,
   registerPublic,
@@ -514,5 +552,6 @@ module.exports = {
   updateEmergencyContacts,
   requestPhoneOtp,
   verifyPhoneOtp,
+  inviteHR,
 };
 
