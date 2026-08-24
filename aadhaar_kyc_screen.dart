@@ -820,10 +820,10 @@ class _AadhaarKycScreenState extends State<AadhaarKycScreen> with TickerProvider
                       ),
                     ],
                   ),
-                  child: CircleAvatar(
+                  child: const CircleAvatar(
                     radius: 42,
-                    backgroundColor: const Color(0xFF0E1A38),
-                    child: const Icon(
+                    backgroundColor: Color(0xFF0E1A38),
+                    child: Icon(
                       Icons.person_rounded,
                       size: 52,
                       color: Color(0xFF00E676),
