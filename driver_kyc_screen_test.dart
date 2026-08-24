@@ -21,12 +21,14 @@ void main() {
 
   Widget createDriverKycScreen({
     AadhaarProfilePayload? aadhaarProfile,
-    Function(Map<String, dynamic>)? onSuccess,
+    Map<String, dynamic>? previousPayload,
+    Function(Map<String, dynamic>)? onDriverKycSuccess,
   }) {
     return MaterialApp(
       home: DriverKycScreen(
         verifiedAadhaarProfile: aadhaarProfile ?? mockAadhaar,
-        onDriverKycSuccess: onSuccess,
+        previousPayload: previousPayload,
+        onDriverKycSuccess: onDriverKycSuccess,
       ),
     );
   }
@@ -551,6 +553,155 @@ void main() {
 
       expect(find.byKey(const Key('capture_vehicle_photo_button')), findsOneWidget);
       expect(find.text('Capture Photo to Proceed'), findsOneWidget);
+    });
+  });
+
+  group('DriverKycScreen - Phase 6 (Captain Pledge, Holo-Seal & Navigation Bridge) Tests', () {
+    testWidgets('TC-7.17 to TC-7.19: Captain Safety Pledge Modal requires explicit charter acceptance to activate', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. DL & RC verification & Photo
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'ka0520100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'ka01ab1234');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.byKey(const Key('capture_vehicle_photo_button')));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 2. Tap Proceed to Captain Activation
+      await tester.tap(find.byKey(const Key('proceed_to_activation_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 3. Verify Captain Safety Charter Modal renders
+      expect(find.byKey(const Key('captain_pledge_modal')), findsOneWidget);
+      expect(find.text('Captain Safety Charter'), findsOneWidget);
+      expect(find.text('Zero-Tolerance Community Standards'), findsOneWidget);
+      expect(find.textContaining('Zero Substance Tolerance'), findsOneWidget);
+      expect(find.textContaining('Defensive Driving'), findsOneWidget);
+      expect(find.textContaining('Harassment-Free Corporate Standard'), findsOneWidget);
+      expect(find.textContaining('Hands-Free Navigation'), findsOneWidget);
+
+      // Checkbox is unchecked initially -> Activation button is disabled
+      expect(find.byKey(const Key('captain_pledge_checkbox')), findsOneWidget);
+      final activateButtonFinder = find.byKey(const Key('complete_driver_activation_button'));
+      expect(activateButtonFinder, findsOneWidget);
+      final activateBtn = tester.widget<ElevatedButton>(activateButtonFinder);
+      expect(activateBtn.onPressed, isNull);
+
+      // 4. Accept Pledge
+      await tester.tap(find.byKey(const Key('captain_pledge_checkbox')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final activeBtnUpdated = tester.widget<ElevatedButton>(activateButtonFinder);
+      expect(activeBtnUpdated.onPressed, isNotNull);
+
+      // 5. Tap Activate Verified Captain Status
+      await tester.tap(activateButtonFinder);
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Modal closes and displays Holographic Success Card
+      expect(find.byKey(const Key('driver_verified_success_card')), findsOneWidget);
+    });
+
+    testWidgets('TC-7.20 to TC-7.23: Holographic Success Card renders details and dispatches Navigation Bridge payload', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Map<String, dynamic>? receivedPayload;
+
+      await tester.pumpWidget(
+        createDriverKycScreen(
+          previousPayload: {
+            'phone': '+91 9876543210',
+            'work_email': 'rahul.kumar@google.com',
+            'company_name': 'Google India',
+          },
+          onDriverKycSuccess: (payload) {
+            receivedPayload = payload;
+          },
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. DL & RC & Photo & Pledge
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'ka0520100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'ka01ab1234');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.byKey(const Key('capture_vehicle_photo_button')));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      await tester.tap(find.byKey(const Key('proceed_to_activation_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.byKey(const Key('captain_pledge_checkbox')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('complete_driver_activation_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 2. Verify Success Card UI
+      expect(find.byKey(const Key('driver_verified_success_card')), findsOneWidget);
+      expect(find.text('Verified Carpool Captain'), findsOneWidget);
+      expect(find.text('SYS.AUTH // CAPTAIN_ACTIVATED'), findsOneWidget);
+      expect(find.text('Rahul Kumar'), findsWidgets);
+      expect(find.text('KA05 20100012345'), findsOneWidget);
+      expect(find.text('Hyundai Creta SX (O) (KA 01 AB 1234)'), findsOneWidget);
+      expect(find.text('4 Seats Available'), findsOneWidget);
+      expect(find.text('•••• •••• 9012'), findsOneWidget);
+
+      // 3. Tap Finish Driver KYC Button (Navigation Bridge)
+      final finishBtn = find.byKey(const Key('finish_driver_kyc_button'));
+      expect(finishBtn, findsOneWidget);
+      await tester.tap(finishBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 4. Verify Payload Hand-off
+      expect(receivedPayload, isNotNull);
+      expect(receivedPayload!['phone'], '+91 9876543210');
+      expect(receivedPayload!['work_email'], 'rahul.kumar@google.com');
+      expect(receivedPayload!['company_name'], 'Google India');
+      expect(receivedPayload!['driver_name'], 'Rahul Kumar');
+      expect(receivedPayload!['dl_number'], 'KA05 20100012345');
+      expect(receivedPayload!['dl_class'], 'BOTH');
+      expect(receivedPayload!['rc_number'], 'KA 01 AB 1234');
+      expect(receivedPayload!['vehicle_make'], 'Hyundai');
+      expect(receivedPayload!['vehicle_model'], 'Creta SX (O)');
+      expect(receivedPayload!['pool_capacity'], 4);
+      expect(receivedPayload!['is_captain_pledge_accepted'], true);
+      expect(receivedPayload!['is_driver_kyc_complete'], true);
     });
   });
 }

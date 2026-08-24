@@ -7,7 +7,7 @@ import '../../core/services/driver_kyc_validator.dart';
 import '../../core/services/aadhaar_kyc_validator.dart';
 
 /// Screen 7: Driver License & Vehicle RC KYC Gate
-/// Phase 4: Step 2 Vehicle RC & 3D Glass Vehicle Model via Vahan Gateway
+/// Phase 6: Captain Community Safety Pledge, Holo-Seal & Final Payload Hand-off
 class DriverKycScreen extends StatefulWidget {
   final AadhaarProfilePayload? verifiedAadhaarProfile;
   final Map<String, dynamic>? previousPayload;
@@ -39,12 +39,14 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
   // Data Records
   DlProfileRecord? _dlRecord;
   RcVehicleRecord? _rcRecord;
-  DriverSafetyValidationResult? _safetyResult;
 
   // States
   bool _isDlValidating = false;
   bool _isRcValidating = false;
   bool _isOwnerAuthDeclared = false;
+  bool _isCaptainPledgeAccepted = false;
+  bool _isCaptainActive = false;
+  bool _isShowingPledgeModal = false;
   String? _capturedVehiclePhotoPath;
   String? _dlErrorMessage;
   String? _rcErrorMessage;
@@ -538,7 +540,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
   }
 
   Widget _buildStepItem(int stepNum, String title, IconData icon, Color accentColor) {
-    final isDone = (stepNum == 1 && _dlRecord != null) || (stepNum == 2 && _rcRecord != null) || stepNum < _currentStep;
+    final isDone = (stepNum == 1 && _dlRecord != null) || (stepNum == 2 && _rcRecord != null) || (stepNum == 3 && _isCaptainActive) || stepNum < _currentStep;
     final isCurrent = stepNum == _currentStep;
     final color = isDone
         ? const Color(0xFF00E676)
@@ -602,7 +604,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
         return _buildStep2RcVerification(accentColor);
       case 3:
       default:
-        return _buildStep3ActivationPlaceholder(accentColor);
+        return _buildStep3Activation(accentColor);
     }
   }
 
@@ -1444,8 +1446,19 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
     );
   }
 
+  /// Step 3 Router: Switch between Safety Form, Pledge Modal, and Final Success Card
+  Widget _buildStep3Activation(Color accentColor) {
+    if (_isCaptainActive) {
+      return _buildVerifiedCaptainSuccessCard(accentColor);
+    }
+    if (_isShowingPledgeModal) {
+      return _buildCaptainPledgeCard(accentColor);
+    }
+    return _buildSafetyMatrixAndPhoto(accentColor);
+  }
+
   /// Phase 5: Step 3 Safety Cross-Validation & Vehicle Exterior Photo Capture View
-  Widget _buildStep3ActivationPlaceholder(Color accentColor) {
+  Widget _buildSafetyMatrixAndPhoto(Color accentColor) {
     if (_dlRecord == null || _rcRecord == null) {
       return Container(
         key: const Key('driver_kyc_step_content'),
@@ -1869,13 +1882,9 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
               onPressed: (safety.isFullyApproved && _capturedVehiclePhotoPath != null)
                   ? () {
                       HapticFeedback.heavyImpact();
-                      // Next phase will complete Captain Pledge & Hand-off
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Safety verification complete! Proceeding to Captain Activation.'),
-                          backgroundColor: Color(0xFF00E676),
-                        ),
-                      );
+                      setState(() {
+                        _isShowingPledgeModal = true;
+                      });
                     }
                   : null,
               icon: const Icon(Icons.shield_rounded, size: 18),
@@ -1895,6 +1904,352 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 elevation: (safety.isFullyApproved && _capturedVehiclePhotoPath != null) ? 6 : 0,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Phase 6: Captain Safety & Community Charter Pledge Card (TC-7.17 to TC-7.19)
+  Widget _buildCaptainPledgeCard(Color accentColor) {
+    return Container(
+      key: const Key('captain_pledge_modal'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E1A38).withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
+            blurRadius: 24,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.4)),
+                    ),
+                    child: const Icon(Icons.handshake_rounded, color: Color(0xFF00E5FF), size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Captain Safety Charter',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white60, size: 18),
+                tooltip: 'Back to Details',
+                onPressed: () {
+                  setState(() {
+                    _isShowingPledgeModal = false;
+                  });
+                },
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white12, height: 20),
+
+          const Text(
+            'Zero-Tolerance Community Standards',
+            style: TextStyle(color: Color(0xFF00E5FF), fontSize: 13, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+
+          _buildPledgePillar(
+            '🚫 Zero Substance Tolerance',
+            'Never operate your vehicle under the influence of alcohol, medication, or narcotics.',
+          ),
+          _buildPledgePillar(
+            '🛡️ Defensive Driving & Speed Limits',
+            'Adhere strictly to traffic rules, lane discipline, and urban speed regulations.',
+          ),
+          _buildPledgePillar(
+            '🤝 Harassment-Free Corporate Standard',
+            'Maintain professional decorum, respect co-rider privacy, and support zero discrimination.',
+          ),
+          _buildPledgePillar(
+            '📱 Hands-Free Navigation',
+            'Mount your mobile device securely. Never text or browse while transporting co-poolers.',
+          ),
+          const SizedBox(height: 16),
+
+          // Pledge Acceptance Checkbox (TC-7.18)
+          GestureDetector(
+            key: const Key('captain_pledge_checkbox'),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() {
+                _isCaptainPledgeAccepted = !_isCaptainPledgeAccepted;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _isCaptainPledgeAccepted ? const Color(0xFF00E676).withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _isCaptainPledgeAccepted ? const Color(0xFF00E676).withValues(alpha: 0.4) : Colors.white12,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: _isCaptainPledgeAccepted ? const Color(0xFF00E676) : Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: _isCaptainPledgeAccepted ? const Color(0xFF00E676) : Colors.white38,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: _isCaptainPledgeAccepted
+                        ? const Icon(Icons.check_rounded, color: Color(0xFF050814), size: 16)
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'I accept the KarmaRide Captain Code of Conduct & Safety Charter.',
+                      style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Complete Driver Activation Action Button (TC-7.19)
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              key: const Key('complete_driver_activation_button'),
+              onPressed: _isCaptainPledgeAccepted
+                  ? () {
+                      HapticFeedback.heavyImpact();
+                      setState(() {
+                        _isCaptainActive = true;
+                        _isShowingPledgeModal = false;
+                      });
+                    }
+                  : null,
+              icon: const Icon(Icons.electric_bolt_rounded, size: 18),
+              label: const Text(
+                'Activate Verified Captain Status',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, letterSpacing: 0.3),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: const Color(0xFF050814),
+                disabledBackgroundColor: Colors.white.withValues(alpha: 0.08),
+                disabledForegroundColor: Colors.white24,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: _isCaptainPledgeAccepted ? 6 : 0,
+                shadowColor: const Color(0xFF00E676).withValues(alpha: 0.4),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPledgePillar(String title, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  description,
+                  style: const TextStyle(color: Colors.white60, fontSize: 11.5, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Phase 6: Instant Verification Holographic Success Card (TC-7.20 to TC-7.23)
+  Widget _buildVerifiedCaptainSuccessCard(Color accentColor) {
+    final dl = _dlRecord!;
+    final rc = _rcRecord!;
+    final driverName = widget.verifiedAadhaarProfile?.fullName ?? dl.holderName;
+
+    return Container(
+      key: const Key('driver_verified_success_card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A1E34).withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFF00E676), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E676).withValues(alpha: 0.25),
+            blurRadius: 30,
+            spreadRadius: 4,
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Holographic Seal Header
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E676).withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF00E676), width: 2),
+            ),
+            child: const Icon(Icons.verified_rounded, color: Color(0xFF00E676), size: 42),
+          ),
+          const SizedBox(height: 12),
+
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E676).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
+            ),
+            child: const Text(
+              'SYS.AUTH // CAPTAIN_ACTIVATED',
+              style: TextStyle(
+                color: Color(0xFF00E676),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.5,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          const Text(
+            'Verified Carpool Captain',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Your DL, Vehicle RC, and Community Safety Charter are 100% authenticated.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.3),
+          ),
+          const Divider(color: Colors.white12, height: 24),
+
+          // Metadata Grid
+          _buildSuccessMetaRow('CAPTAIN NAME', driverName),
+          _buildSuccessMetaRow('DRIVING LICENSE', dl.dlNumber),
+          _buildSuccessMetaRow('VEHICLE', '${rc.make} ${rc.model} (${rc.rcNumber})'),
+          _buildSuccessMetaRow('POOL CAPACITY', '${rc.seatingCapacity - 1} Seats Available'),
+          if (widget.verifiedAadhaarProfile != null)
+            _buildSuccessMetaRow('AADHAAR UID', widget.verifiedAadhaarProfile!.maskedAadhaar),
+          const SizedBox(height: 20),
+
+          // Finish / Proceed to Dashboard Button (TC-7.23)
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              key: const Key('finish_driver_kyc_button'),
+              onPressed: () {
+                HapticFeedback.heavyImpact();
+                final finalPayload = {
+                  if (widget.previousPayload != null) ...widget.previousPayload!,
+                  'driver_name': driverName,
+                  'dl_number': dl.dlNumber,
+                  'dl_class': dl.vehicleClass.name.toUpperCase(),
+                  'dl_expiry': dl.expiryDate,
+                  'rc_number': rc.rcNumber,
+                  'vehicle_make': rc.make,
+                  'vehicle_model': rc.model,
+                  'vehicle_color': rc.color,
+                  'fuel_type': rc.fuelType,
+                  'seating_capacity': rc.seatingCapacity,
+                  'pool_capacity': rc.seatingCapacity - 1,
+                  'rc_owner_name': rc.ownerName,
+                  'is_owner_matched': DriverKycValidator.isNameMatched(rc.ownerName, driverName),
+                  'vehicle_photo_url': _capturedVehiclePhotoPath ?? '',
+                  'is_captain_pledge_accepted': true,
+                  'is_driver_kyc_complete': true,
+                  'activated_timestamp': DateTime.now().toIso8601String(),
+                };
+
+                widget.onDriverKycSuccess?.call(finalPayload);
+              },
+              icon: const Icon(Icons.dashboard_rounded, size: 20),
+              label: const Text(
+                'Enter Driver Dashboard ➔',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 0.4),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: const Color(0xFF050814),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 8,
+                shadowColor: const Color(0xFF00E676).withValues(alpha: 0.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuccessMetaRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 11, letterSpacing: 1.2, fontWeight: FontWeight.w700)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -1932,4 +2287,3 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
     );
   }
 }
-
