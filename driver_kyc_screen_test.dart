@@ -351,8 +351,206 @@ void main() {
       await tester.tap(step3Btn);
       await tester.pump(const Duration(milliseconds: 300));
 
-      // Verify Step 3 placeholder rendered
-      expect(find.text('Step 3: Vehicle Photo & Captain Activation'), findsOneWidget);
+      // Verify Step 3 Safety Card rendered
+      expect(find.text('Step 3: Safety & Vehicle Photo'), findsOneWidget);
+      expect(find.byKey(const Key('safety_validation_card')), findsOneWidget);
+    });
+  });
+
+  group('DriverKycScreen - Phase 5 (Safety Cross-Validation & Photo Capture) Tests', () {
+    testWidgets('TC-7.09: DL Class vs RC Vehicle Type Mismatch triggers class_mismatch_banner & blocks activation', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Enter Bike-Only DL (MCWG) for Rahul Kumar (vector ending in 5555)
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'dl0420220005555');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 2. Advance to Step 2
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 3. Enter 4-Wheeler Car RC (Hyundai Creta)
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'ka01ab1234');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 4. Advance to Step 3
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 5. Verify Class Mismatch Banner
+      expect(find.byKey(const Key('class_mismatch_banner')), findsOneWidget);
+      expect(find.textContaining('does not permit driving a CAR'), findsOneWidget);
+      expect(find.text('Resolve Compliance Issues Above'), findsOneWidget);
+    });
+
+    testWidgets('TC-7.10: Expired Insurance triggers insurance_expired_banner', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Enter Valid LMV DL
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'ka0520100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 2. Advance to Step 2
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 3. Enter RC with expired insurance (vector ending in 1111)
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'ka01ab1111');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 4. Advance to Step 3
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 5. Verify Insurance Expired Banner
+      expect(find.byKey(const Key('insurance_expired_banner')), findsOneWidget);
+      expect(find.textContaining('Insurance Expired on'), findsOneWidget);
+      expect(find.text('Resolve Compliance Issues Above'), findsOneWidget);
+    });
+
+    testWidgets('TC-7.11: Expired PUC displays warning advisory banner', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Enter Valid LMV DL
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'ka0520100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 2. Advance to Step 2
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 3. Enter RC with expired PUC (vector with 8888)
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'ka01ab8888');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 4. Advance to Step 3
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 5. Verify PUC Warning Banner
+      expect(find.byKey(const Key('puc_warning_banner')), findsOneWidget);
+      expect(find.textContaining('PUC Expired on'), findsOneWidget);
+    });
+
+    testWidgets('TC-7.12 & TC-7.13: Family/Parent Owner requires owner_auth_checkbox consent', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Enter DL for Rahul Kumar
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'ka0520100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 2. Step 2: Enter Parent-owned vehicle (starts with MH12 -> Rajesh Kumar)
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'mh12cd5678');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // 3. Step 3: Check Family Owner card
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.byKey(const Key('family_owner_card')), findsOneWidget);
+      expect(find.textContaining('Owner Mismatch: Rajesh Kumar (Parent)'), findsOneWidget);
+
+      // Checkbox is unchecked initially -> Activation blocked
+      expect(find.text('Resolve Compliance Issues Above'), findsOneWidget);
+
+      // Tap Checkbox to declare consent
+      await tester.tap(find.byKey(const Key('owner_auth_checkbox')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Now compliance passes, prompts for Photo
+      expect(find.text('Capture Photo to Proceed'), findsOneWidget);
+    });
+
+    testWidgets('TC-7.15 & TC-7.16: Vehicle Exterior Photo capture, preview and retake', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. DL & RC verification
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'ka0520100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byKey(const Key('rc_input_field')), 'ka01ab1234');
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(const Key('verify_vahan_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      await tester.tap(find.byKey(const Key('proceed_to_step_3_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 2. Initial state: photo prompt
+      expect(find.byKey(const Key('vehicle_photo_card')), findsOneWidget);
+      expect(find.byKey(const Key('capture_vehicle_photo_button')), findsOneWidget);
+      expect(find.text('Capture Photo to Proceed'), findsOneWidget);
+
+      // 3. Capture photo
+      await tester.tap(find.byKey(const Key('capture_vehicle_photo_button')));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 4. Photo verified preview
+      expect(find.text('Photo AI Verified ✓'), findsOneWidget);
+      expect(find.text('Proceed to Captain Activation'), findsOneWidget);
+
+      // 5. Retake photo
+      final retakeBtn = find.byKey(const Key('retake_vehicle_photo_button'));
+      expect(retakeBtn, findsOneWidget);
+      await tester.tap(retakeBtn);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('capture_vehicle_photo_button')), findsOneWidget);
+      expect(find.text('Capture Photo to Proceed'), findsOneWidget);
     });
   });
 }

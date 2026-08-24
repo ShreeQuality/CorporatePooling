@@ -526,12 +526,11 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _buildStepItem(1, 'License', Icons.badge_rounded, accentColor),
-          _buildStepLine(1 < _currentStep || _dlRecord != null, accentColor),
+          Expanded(child: _buildStepLine(1 < _currentStep || _dlRecord != null, accentColor)),
           _buildStepItem(2, 'Vehicle RC', Icons.directions_car_filled_rounded, accentColor),
-          _buildStepLine(2 < _currentStep || _rcRecord != null, accentColor),
+          Expanded(child: _buildStepLine(2 < _currentStep || _rcRecord != null, accentColor)),
           _buildStepItem(3, 'Activation', Icons.check_circle_rounded, accentColor),
         ],
       ),
@@ -556,6 +555,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
         }
       },
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             width: 28,
@@ -587,7 +587,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
 
   Widget _buildStepLine(bool isPassed, Color accentColor) {
     return Container(
-      width: 20,
+      margin: const EdgeInsets.symmetric(horizontal: 6),
       height: 2,
       color: isPassed ? const Color(0xFF00E676) : Colors.white12,
     );
@@ -1343,7 +1343,9 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
           const SizedBox(height: 14),
 
           // Specs Grid (Fuel & Seats)
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1359,7 +1361,6 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
                   style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11.5, fontWeight: FontWeight.w700),
                 ),
               ),
-              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -1443,8 +1444,45 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
     );
   }
 
-  /// Placeholder for Step 3 (to be completed in Phase 6 & 7)
+  /// Phase 5: Step 3 Safety Cross-Validation & Vehicle Exterior Photo Capture View
   Widget _buildStep3ActivationPlaceholder(Color accentColor) {
+    if (_dlRecord == null || _rcRecord == null) {
+      return Container(
+        key: const Key('driver_kyc_step_content'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: accentColor.withValues(alpha: 0.3)),
+        ),
+        child: const Column(
+          children: [
+            Icon(Icons.lock_clock_rounded, color: Colors.white38, size: 40),
+            SizedBox(height: 12),
+            Text(
+              'Prerequisites Incomplete',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Please complete Step 1 (Driving License) and Step 2 (Vehicle RC) first.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final driverAadhaarName = widget.verifiedAadhaarProfile?.fullName ?? 'Rahul Kumar';
+    final safety = DriverKycValidator.validateSafetyAndCompatibility(
+      dl: _dlRecord!,
+      rc: _rcRecord!,
+      driverAadhaarName: driverAadhaarName,
+      isOwnerAuthorizationDeclared: _isOwnerAuthDeclared,
+    );
+
     return Container(
       key: const Key('driver_kyc_step_content'),
       width: double.infinity,
@@ -1452,22 +1490,446 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: accentColor.withValues(alpha: 0.3)),
+        border: Border.all(
+          color: safety.isFullyApproved ? const Color(0xFF00E676).withValues(alpha: 0.4) : accentColor.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (safety.isFullyApproved ? const Color(0xFF00E676) : accentColor).withValues(alpha: 0.08),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Step 3: Vehicle Photo & Captain Activation',
-            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          // Header Row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: accentColor.withValues(alpha: 0.3)),
+                ),
+                child: Icon(Icons.verified_user_rounded, color: accentColor, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Step 3: Safety & Vehicle Photo',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      'Automated Cross-Validation & Compliance Matrix',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Ready for Step 3 Photo capture & Safety Cross-Validation in Phase 5 & 6.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
+          const SizedBox(height: 18),
+
+          // 1. Safety Cross-Validation Matrix Card (TC-7.09 to TC-7.14)
+          Container(
+            key: const Key('safety_validation_card'),
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0E1A38).withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: safety.isFullyApproved ? const Color(0xFF00E676).withValues(alpha: 0.3) : const Color(0xFFFF5252).withValues(alpha: 0.3),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'COMPLIANCE & COMPATIBILITY CHECK',
+                  style: TextStyle(color: Colors.white38, fontSize: 10.5, letterSpacing: 1.5, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+
+                // DL vs Vehicle Class (TC-7.09)
+                if (!safety.isClassCompatible) ...[
+                  Container(
+                    key: const Key('class_mismatch_banner'),
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF5252).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.error_outline_rounded, color: Color(0xFFFF5252), size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            safety.blockReason ?? 'Your DL only permits 2-Wheelers (MCWG), but the vehicle is a 4-Wheeler Car.',
+                            style: const TextStyle(color: Color(0xFFFF8A80), fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  _buildComplianceRow(
+                    Icons.check_circle_rounded,
+                    const Color(0xFF00E676),
+                    'Vehicle Class Compatibility',
+                    '${_dlRecord!.vehicleClass.name.toUpperCase()} permits ${_rcRecord!.make} ${_rcRecord!.model}',
+                  ),
+                ],
+
+                // Insurance Check (TC-7.10)
+                if (!safety.isInsuranceValid) ...[
+                  Container(
+                    key: const Key('insurance_expired_banner'),
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF5252).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.security_update_warning_rounded, color: Color(0xFFFF5252), size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Insurance Expired on ${_rcRecord!.insuranceExpiryDate}. Valid insurance is legally required to carpool.',
+                            style: const TextStyle(color: Color(0xFFFF8A80), fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  _buildComplianceRow(
+                    Icons.shield_rounded,
+                    const Color(0xFF00E676),
+                    'Motor Insurance Policy',
+                    'Valid & Active till ${_rcRecord!.insuranceExpiryDate}',
+                  ),
+                ],
+
+                // PUC Check (TC-7.11)
+                if (_rcRecord!.isPucExpired) ...[
+                  Container(
+                    key: const Key('puc_warning_banner'),
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFB300).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFB300), size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'PUC Expired on ${_rcRecord!.pucExpiryDate}. You may proceed, but renew within 7 days.',
+                            style: const TextStyle(color: Color(0xFFFFE082), fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  _buildComplianceRow(
+                    Icons.eco_rounded,
+                    const Color(0xFF00E676),
+                    'Emission Certificate (PUC)',
+                    'Certified till ${_rcRecord!.pucExpiryDate}',
+                  ),
+                ],
+
+                // Ownership Check (TC-7.12 & TC-7.13)
+                if (!safety.isOwnerMismatch) ...[
+                  _buildComplianceRow(
+                    Icons.person_rounded,
+                    const Color(0xFF00E676),
+                    'Vehicle Ownership',
+                    'Direct Match: Registered to $driverAadhaarName',
+                  ),
+                ] else ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    key: const Key('family_owner_card'),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.family_restroom_rounded, color: Color(0xFF00E5FF), size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Owner Mismatch: ${_rcRecord!.ownerName}',
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'If this vehicle is registered under a family member or company, declare explicit owner consent below.',
+                          style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.3),
+                        ),
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          key: const Key('owner_auth_checkbox'),
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() {
+                              _isOwnerAuthDeclared = !_isOwnerAuthDeclared;
+                            });
+                          },
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  color: _isOwnerAuthDeclared ? const Color(0xFF00E676) : Colors.white.withValues(alpha: 0.05),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: _isOwnerAuthDeclared ? const Color(0xFF00E676) : Colors.white38,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: _isOwnerAuthDeclared
+                                    ? const Icon(Icons.check_rounded, color: Color(0xFF050814), size: 16)
+                                    : null,
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'I declare I have explicit consent from the vehicle owner to pool this vehicle.',
+                                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 2. Vehicle Exterior Photo Capture Card (TC-7.15 & TC-7.16)
+          Container(
+            key: const Key('vehicle_photo_card'),
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0E1A38).withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: _capturedVehiclePhotoPath != null
+                    ? const Color(0xFF00E676).withValues(alpha: 0.4)
+                    : accentColor.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'VEHICLE EXTERIOR PHOTO',
+                      style: TextStyle(color: Colors.white38, fontSize: 10.5, letterSpacing: 1.5, fontWeight: FontWeight.w700),
+                    ),
+                    if (_capturedVehiclePhotoPath != null)
+                      TextButton.icon(
+                        key: const Key('retake_vehicle_photo_button'),
+                        onPressed: () {
+                          setState(() {
+                            _capturedVehiclePhotoPath = null;
+                          });
+                        },
+                        icon: const Icon(Icons.refresh_rounded, color: Color(0xFF00E5FF), size: 14),
+                        label: const Text('Retake', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 11)),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                if (_capturedVehiclePhotoPath == null) ...[
+                  const Text(
+                    'Capture a clear photo showing the vehicle front/rear and legible number plate.',
+                    style: TextStyle(color: Colors.white70, fontSize: 12.5, height: 1.3),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: OutlinedButton.icon(
+                      key: const Key('capture_vehicle_photo_button'),
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        setState(() {
+                          _capturedVehiclePhotoPath = 'mock_vehicle_photo_${_rcRecord!.rcNumber.replaceAll(' ', '_')}.jpg';
+                        });
+                      },
+                      icon: const Icon(Icons.camera_alt_rounded, size: 18, color: Color(0xFF00E5FF)),
+                      label: const Text(
+                        'Capture Vehicle Photo',
+                        style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.w700, fontSize: 13.5),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF00E5FF)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00E676).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
+                        ),
+                        child: const Icon(Icons.directions_car_rounded, color: Color(0xFF00E676), size: 28),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 14),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Photo AI Verified ✓',
+                                  style: TextStyle(color: Color(0xFF00E676), fontSize: 13, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _capturedVehiclePhotoPath!,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white54, fontSize: 11.5, fontFamily: 'monospace'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Proceed to Activation Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              key: const Key('proceed_to_activation_button'),
+              onPressed: (safety.isFullyApproved && _capturedVehiclePhotoPath != null)
+                  ? () {
+                      HapticFeedback.heavyImpact();
+                      // Next phase will complete Captain Pledge & Hand-off
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Safety verification complete! Proceeding to Captain Activation.'),
+                          backgroundColor: Color(0xFF00E676),
+                        ),
+                      );
+                    }
+                  : null,
+              icon: const Icon(Icons.shield_rounded, size: 18),
+              label: Text(
+                (!safety.isFullyApproved)
+                    ? 'Resolve Compliance Issues Above'
+                    : (_capturedVehiclePhotoPath == null)
+                        ? 'Capture Photo to Proceed'
+                        : 'Proceed to Captain Activation',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: const Color(0xFF050814),
+                disabledBackgroundColor: Colors.white.withValues(alpha: 0.08),
+                disabledForegroundColor: Colors.white24,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: (safety.isFullyApproved && _capturedVehiclePhotoPath != null) ? 6 : 0,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComplianceRow(IconData icon, Color color, String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  subtitle,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white54, fontSize: 11.5),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 }
+
