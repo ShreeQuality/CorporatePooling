@@ -7,7 +7,7 @@ import '../../core/services/driver_kyc_validator.dart';
 import '../../core/services/aadhaar_kyc_validator.dart';
 
 /// Screen 7: Driver License & Vehicle RC KYC Gate
-/// Phase 1 & 2: Navigation Bridge, Core Architecture & Golden Glassmorphic Base
+/// Phase 3: Step 1 Driving License Verification & Sarathi API Gateway
 class DriverKycScreen extends StatefulWidget {
   final AadhaarProfilePayload? verifiedAadhaarProfile;
   final Map<String, dynamic>? previousPayload;
@@ -49,18 +49,147 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
   String? _dlErrorMessage;
   String? _rcErrorMessage;
 
+  // Physics Shake Animation for Error Feedback
+  late AnimationController _shakeController;
+  late Animation<double> _shakeAnimation;
+
   @override
   void initState() {
     super.initState();
+
+    _shakeController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+
+    _shakeAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: -10.0), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -10.0, end: 10.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 10.0, end: -8.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -8.0, end: 8.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 8.0, end: 0.0), weight: 1),
+    ]).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeInOut));
+
+    _dlController.addListener(_onDlChanged);
+  }
+
+  void _onDlChanged() {
+    final text = _dlController.text;
+    final formatted = DriverKycValidator.formatDrivingLicense(text);
+    if (formatted != text) {
+      _dlController.value = TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
+    }
+    setState(() {
+      if (_dlErrorMessage != null) {
+        _dlErrorMessage = null;
+      }
+    });
   }
 
   @override
   void dispose() {
+    _dlController.removeListener(_onDlChanged);
     _dlController.dispose();
     _rcController.dispose();
     _dlFocusNode.dispose();
     _rcFocusNode.dispose();
+    _shakeController.dispose();
     super.dispose();
+  }
+
+  /// Verifies DL with Simulated Government Sarathi Gateway
+  Future<void> _verifyDlWithSarathi() async {
+    final rawDl = _dlController.text.trim();
+    if (!DriverKycValidator.isValidDlFormat(rawDl)) {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _dlErrorMessage = 'Please enter a valid 15-character Indian DL Number (e.g. MH12 20100012345).';
+      });
+      return;
+    }
+
+    setState(() {
+      _isDlValidating = true;
+      _dlErrorMessage = null;
+    });
+
+    FocusScope.of(context).unfocus();
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    if (!mounted) return;
+
+    final driverAadhaarName = widget.verifiedAadhaarProfile?.fullName ?? 'Rahul Kumar';
+    final dlProfile = DriverKycValidator.lookupSarathiDl(rawDl, compareAadhaarName: driverAadhaarName);
+
+    if (dlProfile == null) {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _isDlValidating = false;
+        _dlErrorMessage = 'Driving License record not found on Govt Sarathi database. Please verify input.';
+      });
+      return;
+    }
+
+    // Check 1: DL Expiry Guard (TC-7.05)
+    if (dlProfile.isExpired) {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _isDlValidating = false;
+        _dlErrorMessage = 'Driving License expired on ${dlProfile.expiryDate}. You cannot register to offer carpools with an expired license.';
+      });
+      return;
+    }
+
+    // Check 2: DL Name vs Aadhaar Name Mismatch Guard (TC-7.04)
+    final bool nameMatches = DriverKycValidator.isNameMatched(dlProfile.holderName, driverAadhaarName);
+    if (!nameMatches) {
+      HapticFeedback.heavyImpact();
+      _shakeController.forward(from: 0.0);
+      setState(() {
+        _isDlValidating = false;
+        _dlErrorMessage = 'Name Mismatch: Driving License belongs to ${dlProfile.holderName}, but your verified Aadhaar is $driverAadhaarName. The DL must legally belong to you.';
+      });
+      return;
+    }
+
+    // Success: Set DL Record
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isDlValidating = false;
+      _dlRecord = dlProfile;
+      _dlErrorMessage = null;
+    });
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Driving License verified for ${dlProfile.holderName} (${dlProfile.vehicleClass.name.toUpperCase()})',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF0E1630),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   /// System Back / Cancel Safety Confirmation Dialog (TC-7.02)
@@ -312,7 +441,7 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
   }
 
   Widget _buildStepItem(int stepNum, String title, IconData icon, Color accentColor) {
-    final isDone = stepNum < _currentStep;
+    final isDone = stepNum < _currentStep || (stepNum == 1 && _dlRecord != null);
     final isCurrent = stepNum == _currentStep;
     final color = isDone
         ? const Color(0xFF00E676)
@@ -320,32 +449,41 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
             ? accentColor
             : Colors.white38;
 
-    return Row(
-      children: [
-        Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: isDone
-                ? const Color(0xFF00E676).withValues(alpha: 0.2)
-                : isCurrent
-                    ? accentColor.withValues(alpha: 0.2)
-                    : Colors.white.withValues(alpha: 0.05),
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 1.5),
+    return GestureDetector(
+      onTap: () {
+        if (stepNum == 1 || (stepNum == 2 && _dlRecord != null)) {
+          setState(() {
+            _currentStep = stepNum;
+          });
+        }
+      },
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: isDone
+                  ? const Color(0xFF00E676).withValues(alpha: 0.2)
+                  : isCurrent
+                      ? accentColor.withValues(alpha: 0.2)
+                      : Colors.white.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+              border: Border.all(color: color, width: 1.5),
+            ),
+            child: Icon(isDone ? Icons.check_rounded : icon, size: 14, color: color),
           ),
-          child: Icon(isDone ? Icons.check_rounded : icon, size: 14, color: color),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          title,
-          style: TextStyle(
-            color: color,
-            fontSize: 11.5,
-            fontWeight: isCurrent || isDone ? FontWeight.w700 : FontWeight.normal,
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: TextStyle(
+              color: color,
+              fontSize: 11.5,
+              fontWeight: isCurrent || isDone ? FontWeight.w700 : FontWeight.normal,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -359,6 +497,428 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
 
   /// Step Content Switcher
   Widget _buildStepContent(Color accentColor) {
+    switch (_currentStep) {
+      case 1:
+        return _buildStep1DlVerification(accentColor);
+      case 2:
+        return _buildStep2RcPlaceholder(accentColor);
+      case 3:
+      default:
+        return _buildStep3ActivationPlaceholder(accentColor);
+    }
+  }
+
+  /// Phase 3: Step 1 Driving License Verification View
+  Widget _buildStep1DlVerification(Color accentColor) {
+    if (_dlRecord != null) {
+      return _buildVerifiedDlCard(accentColor);
+    }
+
+    final isValidFormat = DriverKycValidator.isValidDlFormat(_dlController.text);
+
+    return AnimatedBuilder(
+      animation: _shakeAnimation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(_shakeAnimation.value, 0),
+          child: child,
+        );
+      },
+      child: Container(
+        key: const Key('driver_kyc_step_content'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: _dlErrorMessage != null
+                ? const Color(0xFFFF5252).withValues(alpha: 0.5)
+                : accentColor.withValues(alpha: 0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (_dlErrorMessage != null ? const Color(0xFFFF5252) : accentColor).withValues(alpha: 0.08),
+              blurRadius: 20,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Row
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: accentColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Icon(Icons.badge_rounded, color: accentColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Step 1: Driving License (DL)',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        'Government of India (Sarathi Database)',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+
+            const Text(
+              'Enter 15-Character Driving License Number',
+              style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+
+            // DL Text Field
+            TextField(
+              key: const Key('dl_input_field'),
+              controller: _dlController,
+              focusNode: _dlFocusNode,
+              textCapitalization: TextCapitalization.characters,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                letterSpacing: 2.0,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+              ),
+              decoration: InputDecoration(
+                hintText: 'MH12 20100012345',
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  fontSize: 15,
+                  letterSpacing: 1.5,
+                  fontFamily: 'monospace',
+                ),
+                prefixIcon: const Icon(Icons.credit_card_rounded, color: Color(0xFF00E5FF), size: 20),
+                suffixIcon: _dlController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.cancel_rounded, color: Colors.white38, size: 18),
+                        onPressed: () {
+                          _dlController.clear();
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.04),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Color(0xFF00E5FF), width: 2),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(
+                    color: isValidFormat ? const Color(0xFF00E676) : Colors.white.withValues(alpha: 0.12),
+                    width: isValidFormat ? 1.5 : 1.0,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Live Format Status Chip
+            Row(
+              children: [
+                Icon(
+                  isValidFormat ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                  color: isValidFormat ? const Color(0xFF00E676) : Colors.white38,
+                  size: 14,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    isValidFormat ? 'Valid Indian DL Format (Sarathi Ready)' : 'Format: SSRR YYYYNNNNNNN (e.g. MH12 20100012345)',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isValidFormat ? const Color(0xFF00E676) : Colors.white38,
+                      fontSize: 11.5,
+                      fontWeight: isValidFormat ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Error Banner (TC-7.04 & TC-7.05)
+            if (_dlErrorMessage != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                key: const Key('dl_error_banner'),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF5252).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Color(0xFFFF5252), size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _dlErrorMessage!,
+                        style: const TextStyle(
+                          color: Color(0xFFFF8A80),
+                          fontSize: 12.5,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 20),
+
+            // Verify with Sarathi Action Button
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                key: const Key('verify_sarathi_button'),
+                onPressed: _isDlValidating ? null : _verifyDlWithSarathi,
+                icon: _isDlValidating
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF050814),
+                        ),
+                      )
+                    : const Icon(Icons.verified_rounded, size: 18),
+                label: Text(
+                  _isDlValidating ? 'Authenticating Sarathi Portal...' : 'Verify via Sarathi Portal',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14.5,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: const Color(0xFF050814),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 6,
+                  shadowColor: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Extracted & Verified DL Card
+  Widget _buildVerifiedDlCard(Color accentColor) {
+    final dl = _dlRecord!;
+    return Container(
+      key: const Key('verified_dl_card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E1A38).withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.5), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E676).withValues(alpha: 0.12),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF00E676),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.check_rounded, color: Color(0xFF050814), size: 14),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Driving License Authenticated',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Color(0xFF00E676),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_rounded, color: Colors.white70, size: 18),
+                tooltip: 'Edit DL Number',
+                onPressed: () {
+                  setState(() {
+                    _dlRecord = null;
+                  });
+                },
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white12, height: 20),
+
+          // DL Number
+          const Text('LICENSE NUMBER', style: TextStyle(color: Colors.white38, fontSize: 10.5, letterSpacing: 1.5)),
+          const SizedBox(height: 2),
+          Text(
+            dl.dlNumber,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.5,
+              fontFamily: 'monospace',
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Holder Name & Vehicle Class
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('HOLDER NAME', style: TextStyle(color: Colors.white38, fontSize: 10.5, letterSpacing: 1.5)),
+                    const SizedBox(height: 2),
+                    Text(
+                      dl.holderName,
+                      style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('VEHICLE CLASS', style: TextStyle(color: Colors.white38, fontSize: 10.5, letterSpacing: 1.5)),
+                    const SizedBox(height: 2),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.4)),
+                      ),
+                      child: Text(
+                        dl.vehicleClass == DlVehicleClass.lmv
+                            ? '🚗 LMV (Car)'
+                            : dl.vehicleClass == DlVehicleClass.mcwg
+                                ? '🏍️ MCWG (Bike)'
+                                : '🚗+🏍️ DUAL (LMV+MCWG)',
+                        style: const TextStyle(
+                          color: Color(0xFF00E5FF),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Expiry & Validity
+          Row(
+            children: [
+              const Icon(Icons.event_available_rounded, color: Color(0xFF00E676), size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Valid till ${dl.expiryDate} (Active Govt Status)',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Proceed to Step 2 Button
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              key: const Key('proceed_to_step_2_button'),
+              onPressed: () {
+                HapticFeedback.mediumImpact();
+                setState(() {
+                  _currentStep = 2;
+                });
+              },
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text(
+                'Proceed to Step 2: Vehicle RC',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14.5,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: const Color(0xFF050814),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 6,
+                shadowColor: const Color(0xFF00E676).withValues(alpha: 0.4),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Placeholder for Step 2 (to be completed in Phase 4)
+  Widget _buildStep2RcPlaceholder(Color accentColor) {
     return Container(
       key: const Key('driver_kyc_step_content'),
       width: double.infinity,
@@ -370,17 +930,41 @@ class _DriverKycScreenState extends State<DriverKycScreen> with TickerProviderSt
       ),
       child: Column(
         children: [
-          Text(
-            'Step $_currentStep: ${_currentStep == 1 ? "Driving License Verification" : _currentStep == 2 ? "Vehicle RC Verification" : "Vehicle Photo & Activation"}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+          const Text(
+            'Step 2: Vehicle Registration Certificate (RC)',
+            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 10),
           Text(
-            'Phase 1 Engine Connected. Ready for Step 1 DL Sarathi integration in Phase 3.',
+            'Step 1 DL verified. Ready for Step 2 Vahan RC integration in Phase 4.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Placeholder for Step 3 (to be completed in Phase 6 & 7)
+  Widget _buildStep3ActivationPlaceholder(Color accentColor) {
+    return Container(
+      key: const Key('driver_kyc_step_content'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: accentColor.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'Step 3: Vehicle Photo & Captain Activation',
+            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Ready for Step 3 Photo capture in Phase 6.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
           ),

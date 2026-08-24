@@ -139,4 +139,106 @@ void main() {
       expect(find.text('Driver & Vehicle Verification'), findsOneWidget);
     });
   });
+
+  group('DriverKycScreen - Phase 3 (Step 1: Driving License / Sarathi) Tests', () {
+    testWidgets('TC-7.03: Auto-capitalizes and spaces DL input in real-time', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final dlInput = find.byKey(const Key('dl_input_field'));
+      expect(dlInput, findsOneWidget);
+
+      // Enter lowercase unspaced DL
+      await tester.enterText(dlInput, 'mh1220100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Verify formatted with uppercase & space
+      final textField = tester.widget<TextField>(dlInput);
+      expect(textField.controller?.text, 'MH12 20100012345');
+      expect(find.text('Valid Indian DL Format (Sarathi Ready)'), findsOneWidget);
+    });
+
+    testWidgets('TC-7.04: DL Name Mismatch against Aadhaar triggers error banner & shake', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Enter DL belonging to Amit Shah (Aadhaar is Rahul Kumar)
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'ka0520150007777');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Tap Verify via Sarathi Portal
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // Verify Name Mismatch Error Banner
+      expect(find.byKey(const Key('dl_error_banner')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const Key('dl_error_banner')), matching: find.textContaining('Name Mismatch')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const Key('dl_error_banner')), matching: find.textContaining('Amit Shah')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const Key('dl_error_banner')), matching: find.textContaining('Rahul Kumar')), findsOneWidget);
+    });
+
+    testWidgets('TC-7.05: Expired DL triggers error banner', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Enter Expired DL (2001 vector)
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'mh1420010000001');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Tap Verify
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // Verify Expired Error Banner
+      expect(find.byKey(const Key('dl_error_banner')), findsOneWidget);
+      expect(find.textContaining('Driving License expired'), findsOneWidget);
+    });
+
+    testWidgets('TC-7.03-Success: Valid DL verifies, renders Verified DL Card, and advances to Step 2', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(createDriverKycScreen());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Enter Valid DL for Rahul Kumar
+      await tester.enterText(find.byKey(const Key('dl_input_field')), 'mh1220100012345');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Tap Verify via Sarathi Portal
+      await tester.tap(find.byKey(const Key('verify_sarathi_button')));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      // Verify Verified DL Card
+      expect(find.byKey(const Key('verified_dl_card')), findsOneWidget);
+      expect(find.text('Driving License Authenticated'), findsOneWidget);
+      expect(find.text('MH12 20100012345'), findsOneWidget);
+      expect(find.text('Rahul Kumar'), findsOneWidget);
+      expect(find.byKey(const Key('proceed_to_step_2_button')), findsOneWidget);
+
+      // Tap Proceed to Step 2
+      await tester.tap(find.byKey(const Key('proceed_to_step_2_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Verify Step 2 renders
+      expect(find.text('Step 2: Vehicle Registration Certificate (RC)'), findsOneWidget);
+    });
+  });
 }
