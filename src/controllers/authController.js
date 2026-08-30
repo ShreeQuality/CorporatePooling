@@ -451,38 +451,38 @@ async function requestPhoneOtp(req, res) {
   }
 }
 
-// ─── Verify Phone OTP (Screen 3) ─────────────────────────────
-/**
- * POST /api/v1/auth/verify-phone-otp
- * Body: { phone / phone_number, otp }
- */
-async function verifyPhoneOtp(req, res) {
-  try {
-    const { phone, phone_number, otp } = req.body;
-    const phoneInput = (phone_number || phone || '').trim();
-
-    if (!phoneInput || !otp) {
-      return badRequest(res, 'Phone number and OTP are required.');
-    }
-
-    // Accept dev code 123456 or valid generated OTP
-    const isDev = process.env.NODE_ENV === 'development' && String(otp) === '123456';
-    let isValid = isDev;
-    if (!isValid) {
-      const result = await verifyEmailOtp(phoneInput, String(otp), 'phone_auth');
-      isValid = result.valid;
-    }
-
-    if (!isValid) {
-      return badRequest(res, 'Invalid or expired OTP. Please try again.');
-    }
-
-    // Check if user exists with this phone number
+// ─── Verify Phone OTP (Screen 3) ────────────────────────�    // Check if user exists with this phone number
     let { data: user } = await supabaseAdmin
       .from('users')
       .select('id, full_name, phone_number, role, work_email, work_email_verified, trust_score')
       .eq('phone_number', phoneInput)
       .maybeSingle();
+
+    if (!user) {
+      const placeholderEmail = `user_${phoneInput.replace(/\D/g, '')}@karmaride.internal`;
+      
+      // We must set the phone, phone_confirm, and the bypass password for new users
+      // so that they can successfully login via signInWithPassword later.
+      const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
+        email: placeholderEmail,
+        password: 'KarmaRide_123',
+        phone: phoneInput,
+        phone_confirm: true,
+        email_confirm: true,
+      });
+
+      const userId = authUser?.user?.id || require('crypto').randomUUID();
+      const { data: newUser } = await supabaseAdmin.from('users').insert({
+        id: userId,
+        full_name: 'Karma Rider',
+        phone_number: phoneInput,
+        role: 'corporate_employee',
+        work_email: placeholderEmail,
+        trust_score: 50,
+      }).select().single();
+
+      user = newUser || { id: userId, phone_number: phoneInput, role: 'corporate_employee' };
+    }ingle();
 
     if (!user) {
       const placeholderEmail = `user_${phoneInput.replace(/\\D/g, '')}@karmaride.internal`;
