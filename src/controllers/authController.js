@@ -505,19 +505,19 @@ async function requestPhoneOtp(req, res) {
       user = newUser || { id: userId, phone_number: phoneInput, role: 'corporate_employee' };
     }
 
-    // Get a REAL Supabase JWT using the developer bypass password
+    // Get a REAL Supabase JWT using the hidden developer password
+    // We use this for ALL logins (both 123456 bypass and real OTPs) because
+    // this custom Node endpoint intercepts the login flow instead of Supabase directly.
     let accessToken;
-    if (isDev) {
-      const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
-        phone: phoneInput,
-        password: 'KarmaRide_123'
-      });
-      if (!signInError && signInData?.session) {
-        accessToken = signInData.session.access_token;
-      } else {
-        accessToken = 'mock_jwt_session_' + user.id; 
-      }
+    const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+      phone: phoneInput,
+      password: 'KarmaRide_123'
+    });
+    
+    if (!signInError && signInData?.session) {
+      accessToken = signInData.session.access_token;
     } else {
+      // Emergency fallback (will be rejected by strict middleware, but shouldn't happen)
       accessToken = 'mock_jwt_session_' + user.id; 
     }
 
