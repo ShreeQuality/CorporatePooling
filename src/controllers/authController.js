@@ -505,8 +505,24 @@ async function verifyPhoneOtp(req, res) {
       user = newUser || { id: userId, phone_number: phoneInput, role: 'corporate_employee' };
     }
 
+    // Get a REAL Supabase JWT using the developer bypass password
+    let accessToken;
+    if (isDev) {
+      const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+        phone: phoneInput,
+        password: 'KarmaRide_123'
+      });
+      if (!signInError && signInData?.session) {
+        accessToken = signInData.session.access_token;
+      } else {
+        accessToken = 'mock_jwt_session_' + user.id; 
+      }
+    } else {
+      accessToken = 'mock_jwt_session_' + user.id; 
+    }
+
     return ok(res, {
-      access_token: 'mock_jwt_session_' + user.id,
+      access_token: accessToken,
       user,
     }, 'Phone verified successfully.');
   } catch (err) {
